@@ -549,16 +549,24 @@ show_summary() {
 
     echo ""
     gum style --foreground 226 "STEP 2: Copy files to Synology (${nas_ip})"
-    gum style --foreground 252 "Run these commands ONE BY ONE:"
+    gum style --foreground 252 "Run these commands ONE BY ONE (copy ONLY the command, not the description):"
     echo ""
-    gum style --foreground 245 "First, SSH into your Synology and create the folders:"
-    gum style --foreground 39 "ssh ${nas_user}@${nas_ip} \"sudo mkdir -p ${jellyfin_config}/rffmpeg/.ssh ${cache_path}\""
+    gum style --foreground 245 "Command 1 - Create folders on Synology:"
     echo ""
-    gum style --foreground 245 "Then, copy the files from this Mac to Synology:"
-    gum style --foreground 39 "scp -r ${OUTPUT_DIR}/rffmpeg/* ${nas_user}@${nas_ip}:${jellyfin_config}/rffmpeg/"
+    gum style --foreground 39 --border normal --padding "0 1" \
+        "ssh -t ${nas_user}@${nas_ip} \"sudo mkdir -p ${jellyfin_config}/rffmpeg/.ssh ${cache_path}\""
     echo ""
-    gum style --foreground 226 "💡 TIP: If you see 'Are you sure you want to continue connecting?'"
-    gum style --foreground 252 "   Type: yes (and press Enter)"
+    gum style --foreground 245 "Command 2 - Copy files (if scp fails, use rsync below):"
+    echo ""
+    gum style --foreground 39 --border normal --padding "0 1" \
+        "scp -r ${OUTPUT_DIR}/rffmpeg/* ${nas_user}@${nas_ip}:${jellyfin_config}/rffmpeg/"
+    echo ""
+    gum style --foreground 245 "Alternative if scp fails (use rsync instead):"
+    echo ""
+    gum style --foreground 39 --border normal --padding "0 1" \
+        "rsync -avz -e ssh ${OUTPUT_DIR}/rffmpeg/ ${nas_user}@${nas_ip}:${jellyfin_config}/rffmpeg/"
+    echo ""
+    gum style --foreground 226 "💡 TIP: Type 'yes' if asked about fingerprint, enter password when prompted"
 
     echo ""
     gum style --foreground 226 "STEP 3: Start Jellyfin and add Mac"
