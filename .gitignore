@@ -1,0 +1,28 @@
+# SSH keys (never commit private keys)
+ssh/id_rsa
+ssh/id_rsa.pub
+ssh/*.pem
+*.key
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.local
+
+# Node modules (for future GUI)
+node_modules/
+dist/
+build/

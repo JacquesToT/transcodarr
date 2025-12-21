@@ -1,0 +1,35 @@
+# rffmpeg Configuration for Live Distributed Transcoding
+# Mac Mini M4 (192.168.175.42) als primary transcode node
+
+rffmpeg:
+    logging:
+        log_to_file: true
+        logfile: "/config/log/rffmpeg.log"
+        debug: false
+
+    directories:
+        state: "/config/rffmpeg"
+        persist: "/config/rffmpeg/persist"
+        owner: abc
+        group: abc
+
+    remote:
+        # SSH user voor Mac Mini (met spatie in naam)
+        user: "Nick Roodenrijs"
+        persist: 300
+        args:
+            - "-o"
+            - "StrictHostKeyChecking=no"
+            - "-o"
+            - "UserKnownHostsFile=/dev/null"
+            - "-i"
+            - "/config/rffmpeg/.ssh/id_rsa"
+
+    commands:
+        ssh: "/usr/bin/ssh"
+        # FFmpeg path op de Mac Mini (Homebrew)
+        ffmpeg: "/opt/homebrew/bin/ffmpeg"
+        ffprobe: "/opt/homebrew/bin/ffprobe"
+        # Fallback naar lokale ffmpeg als alle remotes falen
+        fallback_ffmpeg: "/usr/lib/jellyfin-ffmpeg/ffmpeg"
+        fallback_ffprobe: "/usr/lib/jellyfin-ffmpeg/ffprobe"
