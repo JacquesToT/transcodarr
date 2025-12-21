@@ -528,7 +528,9 @@ show_summary() {
 
     echo ""
     gum style --foreground 212 --border normal --padding "1 2" \
-        "📋 QUICK START - What to do now:"
+        "📋 QUICK START - What to do now:" \
+        "" \
+        "Just open a new terminal window and copy-paste these commands!"
 
     echo ""
     gum style --foreground 226 "STEP 1: Add SSH key to your Mac (${mac_ip})"
@@ -538,16 +540,20 @@ show_summary() {
 
     echo ""
     gum style --foreground 226 "STEP 2: Copy files to Synology (${nas_ip})"
-    gum style --foreground 252 "Create folder and copy files:"
+    gum style --foreground 252 "Run these commands ONE BY ONE:"
     echo ""
-    gum style --foreground 39 "# On Synology, create the folder:"
-    gum style --foreground 39 "mkdir -p /volume2/docker/jellyfin/rffmpeg/.ssh"
+    gum style --foreground 245 "First, SSH into your Synology and create the folder:"
+    gum style --foreground 39 "ssh YOUR_USER@${nas_ip} \"mkdir -p /volume2/docker/jellyfin/rffmpeg/.ssh\""
     echo ""
-    gum style --foreground 39 "# From this computer, copy files:"
+    gum style --foreground 245 "Then, copy the files from this Mac to Synology:"
     gum style --foreground 39 "scp -r ${OUTPUT_DIR}/rffmpeg/* YOUR_USER@${nas_ip}:/volume2/docker/jellyfin/rffmpeg/"
+    echo ""
+    gum style --foreground 226 "💡 TIP: If you see 'Are you sure you want to continue connecting?'"
+    gum style --foreground 252 "   Type: yes (and press Enter)"
 
     echo ""
     gum style --foreground 226 "STEP 3: Start Jellyfin and add Mac"
+    gum style --foreground 245 "Run these on your Synology (via SSH or in the Docker folder):"
     gum style --foreground 39 "docker compose up -d"
     gum style --foreground 39 "docker exec jellyfin rffmpeg add ${mac_ip} --weight 2"
 
