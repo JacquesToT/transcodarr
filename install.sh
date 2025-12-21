@@ -199,7 +199,7 @@ setup_apple_silicon() {
     echo ""
     gum style --foreground 212 "📝 Configuration"
 
-    NAS_IP=$(gum input --placeholder "192.168.1.100" --prompt "Synology/NAS IP address: " --value "192.168.175.141")
+    NAS_IP=$(gum input --placeholder "192.168.1.100" --prompt "Synology/NAS IP address: ")
     MEDIA_PATH=$(gum input --placeholder "/volume1/data/media" --prompt "NAS media path: " --value "/volume1/data/media")
     CACHE_PATH=$(gum input --placeholder "/volume2/docker/jellyfin/cache" --prompt "NAS cache path: " --value "/volume2/docker/jellyfin/cache")
 
@@ -244,7 +244,7 @@ setup_jellyfin() {
     echo ""
     gum style --foreground 212 "📝 Configuration"
 
-    MAC_IP=$(gum input --placeholder "192.168.1.50" --prompt "Transcode node IP: " --value "192.168.175.42")
+    MAC_IP=$(gum input --placeholder "192.168.1.50" --prompt "Transcode node IP: ")
     MAC_USER=$(gum input --placeholder "username" --prompt "Transcode node SSH user: ")
     JELLYFIN_PATH=$(gum input --placeholder "/volume2/docker/jellyfin" --prompt "Jellyfin config path: " --value "/volume2/docker/jellyfin")
 
