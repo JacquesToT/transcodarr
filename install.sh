@@ -65,6 +65,88 @@ detect_system() {
     echo "$SYSTEM_TYPE"
 }
 
+# Verify Mac setup prerequisites
+verify_mac_setup() {
+    local nas_ip="$1"
+    local media_path="$2"
+    local all_passed=true
+
+    # Check 1: NAS IP provided
+    gum spin --spinner dot --title "Checking NAS IP..." -- sleep 0.5
+    if [[ -z "$nas_ip" ]]; then
+        gum style --foreground 196 "  ❌ NAS IP address is required"
+        all_passed=false
+    else
+        gum style --foreground 46 "  ✅ NAS IP provided: $nas_ip"
+    fi
+
+    # Check 2: Ping NAS
+    gum spin --spinner dot --title "Pinging NAS ($nas_ip)..." -- sleep 0.3
+    if ping -c 1 -W 2 "$nas_ip" &> /dev/null; then
+        gum style --foreground 46 "  ✅ NAS is reachable"
+    else
+        gum style --foreground 196 "  ❌ Cannot reach NAS at $nas_ip"
+        gum style --foreground 252 "     Check: Is the NAS powered on? Is the IP correct?"
+        all_passed=false
+    fi
+
+    # Check 3: Test NFS mount
+    gum spin --spinner dot --title "Testing NFS access..." -- sleep 0.3
+    local test_mount="/tmp/transcodarr-nfs-test-$$"
+    mkdir -p "$test_mount"
+
+    if sudo mount -t nfs -o resvport,ro,nolock,timeo=5 "${nas_ip}:${media_path}" "$test_mount" 2>/dev/null; then
+        gum style --foreground 46 "  ✅ NFS mount successful"
+        # Check if we can read files
+        if ls "$test_mount" &>/dev/null; then
+            local file_count=$(ls -1 "$test_mount" 2>/dev/null | wc -l | tr -d ' ')
+            gum style --foreground 46 "  ✅ Can read NFS share ($file_count items found)"
+        fi
+        sudo umount "$test_mount" 2>/dev/null
+    else
+        gum style --foreground 196 "  ❌ NFS mount failed"
+        gum style --foreground 252 "     Check: Is NFS enabled on Synology?"
+        gum style --foreground 252 "     Check: Does path $media_path exist?"
+        gum style --foreground 252 "     Check: Are NFS permissions set correctly?"
+        all_passed=false
+    fi
+    rmdir "$test_mount" 2>/dev/null
+
+    # Check 4: Homebrew
+    gum spin --spinner dot --title "Checking Homebrew..." -- sleep 0.3
+    if command -v brew &> /dev/null; then
+        gum style --foreground 46 "  ✅ Homebrew is installed"
+    else
+        gum style --foreground 226 "  ⚠️  Homebrew not installed (will be installed)"
+    fi
+
+    # Check 5: Check if this is Apple Silicon
+    gum spin --spinner dot --title "Checking Apple Silicon..." -- sleep 0.3
+    if [[ $(uname -m) == "arm64" ]]; then
+        gum style --foreground 46 "  ✅ Apple Silicon detected ($(sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -o 'M[0-9].*' || echo 'ARM64'))"
+    else
+        gum style --foreground 226 "  ⚠️  Intel Mac detected (no VideoToolbox hardware acceleration)"
+    fi
+
+    # Check 6: Remote Login (SSH) enabled
+    gum spin --spinner dot --title "Checking Remote Login..." -- sleep 0.3
+    if sudo systemsetup -getremotelogin 2>/dev/null | grep -q "On"; then
+        gum style --foreground 46 "  ✅ Remote Login (SSH) is enabled"
+    else
+        gum style --foreground 196 "  ❌ Remote Login (SSH) is not enabled"
+        gum style --foreground 252 "     Enable in: System Settings → General → Sharing → Remote Login"
+        all_passed=false
+    fi
+
+    echo ""
+
+    if [[ "$all_passed" == true ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Show current node status (visual)
 show_node_status() {
     echo ""
@@ -202,6 +284,31 @@ setup_apple_silicon() {
     NAS_IP=$(gum input --placeholder "192.168.1.100" --prompt "Synology/NAS IP address: ")
     MEDIA_PATH=$(gum input --placeholder "/volume1/data/media" --prompt "NAS media path: " --value "/volume1/data/media")
     CACHE_PATH=$(gum input --placeholder "/volume2/docker/jellyfin/cache" --prompt "NAS cache path: " --value "/volume2/docker/jellyfin/cache")
+
+    echo ""
+    gum style --foreground 212 "🔍 Running pre-flight checks..."
+    echo ""
+
+    # Run verification
+    if ! verify_mac_setup "$NAS_IP" "$MEDIA_PATH"; then
+        echo ""
+        gum style --foreground 196 "❌ Pre-flight checks failed. Please fix the issues above."
+        echo ""
+        if gum confirm "View Prerequisites documentation?"; then
+            gum pager < "$SCRIPT_DIR/docs/PREREQUISITES.md"
+        fi
+        gum confirm "Return to main menu?" && main_menu
+        return
+    fi
+
+    echo ""
+    gum style --foreground 46 "✅ All pre-flight checks passed!"
+    echo ""
+
+    if ! gum confirm "Continue with installation?"; then
+        main_menu
+        return
+    fi
 
     echo ""
     gum style --foreground 212 "🔧 Starting installation..."
