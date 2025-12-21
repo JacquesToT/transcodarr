@@ -18,16 +18,66 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# Setup Homebrew in PATH (needed after fresh install)
+setup_brew_path() {
+    # Check if brew is already in PATH
+    if command -v brew &> /dev/null; then
+        return 0
+    fi
+
+    # Check if Homebrew is installed but not in PATH (Apple Silicon location)
+    if [[ -f "/opt/homebrew/bin/brew" ]]; then
+        echo -e "${YELLOW}Homebrew is installed but not in your PATH.${NC}"
+        echo -e "${YELLOW}Adding Homebrew to PATH...${NC}"
+
+        # Add to current session
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+
+        # Add to .zprofile for future sessions
+        if ! grep -q 'eval "$(/opt/homebrew/bin/brew shellenv)"' ~/.zprofile 2>/dev/null; then
+            echo '' >> ~/.zprofile
+            echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+            echo -e "${GREEN}✓ Added Homebrew to ~/.zprofile for future sessions${NC}"
+        fi
+
+        return 0
+    fi
+
+    # Check Intel Mac location
+    if [[ -f "/usr/local/bin/brew" ]]; then
+        eval "$(/usr/local/bin/brew shellenv)"
+        return 0
+    fi
+
+    # Homebrew not installed at all
+    return 1
+}
+
 # Check for gum
 check_gum() {
-    if ! command -v gum &> /dev/null; then
-        echo -e "${YELLOW}Gum is not installed. Installing via Homebrew...${NC}"
-        if ! command -v brew &> /dev/null; then
-            echo -e "${RED}Homebrew is required. Please install it first:${NC}"
+    # First make sure Homebrew is in PATH
+    if ! setup_brew_path; then
+        echo -e "${YELLOW}Homebrew is not installed.${NC}"
+        echo -e "${YELLOW}Installing Homebrew (this may take a few minutes)...${NC}"
+        echo ""
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+        # Setup PATH after install
+        if ! setup_brew_path; then
+            echo -e "${RED}Homebrew installation failed. Please install manually:${NC}"
             echo '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
             exit 1
         fi
+        echo -e "${GREEN}✓ Homebrew installed successfully!${NC}"
+        echo ""
+    fi
+
+    # Now install gum if needed
+    if ! command -v gum &> /dev/null; then
+        echo -e "${YELLOW}Installing gum (for the interactive UI)...${NC}"
         brew install gum
+        echo -e "${GREEN}✓ Gum installed successfully!${NC}"
+        echo ""
     fi
 }
 
