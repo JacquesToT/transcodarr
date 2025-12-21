@@ -65,22 +65,62 @@ detect_system() {
     echo "$SYSTEM_TYPE"
 }
 
+# Show current node status (visual)
+show_node_status() {
+    echo ""
+    gum style --foreground 212 "📊 Current Transcode Nodes"
+    echo ""
+
+    # Check if this is a Mac
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        local hostname=$(hostname)
+        local ip=$(ipconfig getifaddr en0 2>/dev/null || echo "unknown")
+        local chip=$(sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -o 'M[0-9].*' | head -1 || echo "Unknown")
+
+        # Check if FFmpeg is installed
+        if [[ -f "/opt/homebrew/bin/ffmpeg" ]]; then
+            local ffmpeg_status="✅ Installed"
+        else
+            local ffmpeg_status="❌ Not installed"
+        fi
+
+        # Check NFS mounts
+        if mount | grep -q "/data/media"; then
+            local nfs_status="✅ Mounted"
+        else
+            local nfs_status="❌ Not mounted"
+        fi
+
+        gum style --border normal --padding "1 2" --border-foreground 39 \
+            "🖥️  This Mac: $hostname" \
+            "   IP: $ip" \
+            "   Chip: $chip" \
+            "   FFmpeg: $ffmpeg_status" \
+            "   NFS: $nfs_status"
+    fi
+    echo ""
+}
+
 # Main menu
 main_menu() {
+    # Show node status first
+    show_node_status
+
     local choice
     choice=$(gum choose \
         --header "What would you like to do?" \
         --cursor.foreground 212 \
         --selected.foreground 212 \
-        "🖥️  Setup Mac Mini as Transcode Node" \
+        "🖥️  Setup This Mac as Transcode Node" \
         "🐳 Setup Jellyfin with rffmpeg (Docker)" \
         "🔧 Configure Existing Installation" \
         "📊 Setup Monitoring (Prometheus/Grafana)" \
         "📖 View Documentation" \
+        "🗑️  Uninstall Transcodarr" \
         "❌ Exit")
 
     case "$choice" in
-        "🖥️  Setup Mac Mini as Transcode Node")
+        "🖥️  Setup This Mac as Transcode Node")
             setup_mac_mini
             ;;
         "🐳 Setup Jellyfin with rffmpeg (Docker)")
@@ -95,11 +135,24 @@ main_menu() {
         "📖 View Documentation")
             view_docs
             ;;
+        "🗑️  Uninstall Transcodarr")
+            uninstall_transcodarr
+            ;;
         "❌ Exit")
             gum style --foreground 212 "Goodbye! 👋"
             exit 0
             ;;
     esac
+}
+
+# Uninstall Transcodarr
+uninstall_transcodarr() {
+    if [[ -f "$SCRIPT_DIR/uninstall.sh" ]]; then
+        "$SCRIPT_DIR/uninstall.sh"
+    else
+        gum style --foreground 196 "Uninstall script not found"
+    fi
+    main_menu
 }
 
 # Mac Mini Setup
