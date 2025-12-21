@@ -23,25 +23,58 @@ install_homebrew() {
 
 # Install FFmpeg with VideoToolbox and libfdk-aac
 install_ffmpeg() {
-    gum spin --spinner dot --title "Adding homebrew-ffmpeg tap..." -- \
-        brew tap homebrew-ffmpeg/ffmpeg 2>/dev/null || true
+    # Check if FFmpeg is already installed with VideoToolbox
+    if [[ -f "/opt/homebrew/bin/ffmpeg" ]]; then
+        if /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "videotoolbox"; then
+            gum style --foreground 46 "✓ FFmpeg with VideoToolbox already installed"
+            return 0
+        fi
+    fi
 
-    gum spin --spinner dot --title "Installing FFmpeg with VideoToolbox + libfdk-aac..." -- \
-        brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-fdk-aac 2>/dev/null || \
-        brew upgrade homebrew-ffmpeg/ffmpeg/ffmpeg --with-fdk-aac 2>/dev/null || true
+    gum style --foreground 212 "Installing FFmpeg with VideoToolbox + libfdk-aac..."
+    gum style --foreground 252 "This may take a few minutes..."
+    echo ""
 
-    # Verify installation
-    if /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "videotoolbox"; then
-        gum style --foreground 46 "✓ FFmpeg with VideoToolbox installed"
-    else
-        gum style --foreground 196 "✗ FFmpeg VideoToolbox verification failed"
+    # Add the tap
+    gum style --foreground 252 "Adding homebrew-ffmpeg tap..."
+    if ! brew tap homebrew-ffmpeg/ffmpeg 2>&1; then
+        gum style --foreground 196 "✗ Failed to add homebrew-ffmpeg tap"
         return 1
     fi
 
-    if /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "libfdk_aac"; then
-        gum style --foreground 46 "✓ libfdk-aac encoder available"
+    # Install FFmpeg
+    gum style --foreground 252 "Installing FFmpeg (this takes a while)..."
+    if brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-fdk-aac 2>&1; then
+        gum style --foreground 46 "✓ FFmpeg installation completed"
     else
-        gum style --foreground 226 "⚠ libfdk-aac not available (will use aac instead)"
+        # Try upgrade if already installed
+        gum style --foreground 226 "Trying upgrade instead..."
+        if ! brew upgrade homebrew-ffmpeg/ffmpeg/ffmpeg 2>&1; then
+            # Last resort: try regular ffmpeg
+            gum style --foreground 226 "Trying standard FFmpeg..."
+            brew install ffmpeg 2>&1 || true
+        fi
+    fi
+
+    echo ""
+
+    # Verify installation
+    if [[ -f "/opt/homebrew/bin/ffmpeg" ]]; then
+        if /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "videotoolbox"; then
+            gum style --foreground 46 "✓ FFmpeg with VideoToolbox verified"
+        else
+            gum style --foreground 226 "⚠ VideoToolbox not found (software encoding will be used)"
+        fi
+
+        if /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "libfdk_aac"; then
+            gum style --foreground 46 "✓ libfdk-aac encoder available"
+        else
+            gum style --foreground 226 "⚠ libfdk-aac not available (will use aac instead)"
+        fi
+    else
+        gum style --foreground 196 "✗ FFmpeg not found at /opt/homebrew/bin/ffmpeg"
+        gum style --foreground 252 "Try running manually: brew install ffmpeg"
+        return 1
     fi
 }
 
@@ -272,6 +305,7 @@ run_mac_setup() {
     local nas_ip="$1"
     local media_path="$2"
     local cache_path="$3"
+    local errors=0
 
     # Check if running on Mac
     if [[ "$OSTYPE" != "darwin"* ]]; then
@@ -279,32 +313,46 @@ run_mac_setup() {
         return 1
     fi
 
-    gum style --foreground 212 "Starting Mac Mini setup..."
+    gum style --foreground 212 "Starting Apple Silicon Mac setup..."
     echo ""
 
-    # Run all setup steps
-    install_homebrew
-    install_ffmpeg
-    enable_ssh
+    # Run all setup steps (continue on error)
+    install_homebrew || ((errors++))
+    echo ""
+    install_ffmpeg || ((errors++))
+    echo ""
+    enable_ssh || ((errors++))
+    echo ""
 
     # Check for synthetic links and offer to set up
     if [[ ! -d "/data" ]]; then
-        setup_synthetic_links
+        setup_synthetic_links || ((errors++))
     else
         gum style --foreground 46 "✓ /data directory exists"
     fi
 
-    create_media_mount_script "$nas_ip" "$media_path"
-    create_cache_mount_script "$nas_ip" "$cache_path"
-    create_launch_daemons
-    configure_energy_settings
-    install_node_exporter
+    echo ""
+    create_media_mount_script "$nas_ip" "$media_path" || ((errors++))
+    create_cache_mount_script "$nas_ip" "$cache_path" || ((errors++))
+    create_launch_daemons || ((errors++))
+    echo ""
+    configure_energy_settings || ((errors++))
+    echo ""
+    install_node_exporter || ((errors++))
 
     echo ""
-    gum style --foreground 46 --border double --padding "1 2" \
-        "🎉 Mac Mini setup complete!" \
-        "" \
-        "Next steps:" \
-        "1. Copy SSH public key from Jellyfin server" \
-        "2. Add this Mac to rffmpeg on the server"
+    if [[ $errors -eq 0 ]]; then
+        gum style --foreground 46 --border double --padding "1 2" \
+            "🎉 Apple Silicon Mac setup complete!" \
+            "" \
+            "Next steps:" \
+            "1. Copy SSH public key from Jellyfin server" \
+            "2. Add this Mac to rffmpeg on the server"
+    else
+        gum style --foreground 226 --border double --padding "1 2" \
+            "⚠️  Setup completed with $errors warning(s)" \
+            "" \
+            "Some components may need manual configuration." \
+            "Check the messages above for details."
+    fi
 }

@@ -6,7 +6,7 @@
 # Requirements: gum (brew install gum)
 #
 
-set -e
+# Don't use set -e, we handle errors ourselves
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERSION="1.0.0"
