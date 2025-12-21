@@ -21,20 +21,29 @@ Offload live video transcoding from your NAS/server to Apple Silicon Macs with h
 **[📖 QUICKSTART.md](QUICKSTART.md)** - Get up and running in 15 minutes
 
 ```bash
-git clone https://github.com/yourusername/Transcodarr.git
+git clone https://github.com/JacquesToT/Transcodarr.git
 cd Transcodarr
 chmod +x install.sh
 ./install.sh
 ```
 
+## What is a "Node"?
+
+In Transcodarr, a **node** is simply a Mac that handles transcoding jobs. Think of it like this:
+
+- Your **server** (Synology/NAS) runs Jellyfin and stores your media
+- Your **node(s)** (Mac Mini, Mac Studio, etc.) do the heavy lifting (transcoding)
+
+You can have **one node** (single Mac) or **multiple nodes** (several Macs sharing the workload).
+
 ## Features
 
 - **Hardware Acceleration**: Uses Apple Silicon VideoToolbox (H.264/HEVC)
 - **Distributed Transcoding**: Offload transcoding from your NAS to Apple Silicon Macs
-- **Load Balancing**: Distribute workload across multiple Macs
+- **Load Balancing**: Distribute workload across multiple Macs (nodes)
 - **Automatic Fallback**: Falls back to local transcoding if Mac is unavailable
 - **Easy Setup**: Interactive installer with step-by-step guidance
-- **Monitoring**: Prometheus + Grafana dashboard included
+- **Monitoring**: Prometheus + Grafana dashboard included *(optional)*
 
 ## Performance
 
@@ -65,9 +74,15 @@ chmod +x install.sh
 📋 **[Prerequisites Guide](docs/PREREQUISITES.md)** - What to configure before running the installer
 
 You'll need:
-- NFS enabled on your Synology/NAS
-- Remote Login (SSH) enabled on your Mac
-- Your IP addresses and paths ready
+- **NFS enabled on your Synology/NAS**
+  - *DSM → Control Panel → File Services → NFS → Enable NFS*
+- **Remote Login (SSH) enabled on your Mac**
+  - *System Settings → General → Sharing → Remote Login → ON*
+- **Your IP addresses and paths ready:**
+  - Mac IP address (System Settings → Network)
+  - NAS/Server IP address (DSM → Control Panel → Network)
+  - Media folder path (e.g., `/volume1/data/media`)
+  - Jellyfin config path (e.g., `/volume2/docker/jellyfin`)
 
 ### 2. Install Gum (required for installer UI)
 
@@ -78,8 +93,8 @@ brew install gum
 ### 3. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/transcodarr.git
-cd transcodarr
+git clone https://github.com/JacquesToT/Transcodarr.git
+cd Transcodarr
 ```
 
 ### 4. Run the installer
@@ -89,13 +104,13 @@ cd transcodarr
 ```
 
 The interactive installer will guide you through:
-- Apple Silicon Mac setup (FFmpeg, NFS, LaunchDaemons)
+- Apple Silicon Mac setup (FFmpeg, NFS, energy settings)
 - Jellyfin/Docker configuration (rffmpeg, SSH keys)
-- Monitoring setup (Prometheus/Grafana)
+- Monitoring setup (Prometheus/Grafana) — *optional*
 
 ## Manual Setup
 
-See the full setup guide: [LIVE_TRANSCODING_GUIDE.md](LIVE_TRANSCODING_GUIDE.md)
+Prefer to set things up manually? See **[MANUAL_SETUP.md](MANUAL_SETUP.md)**
 
 ### Mac Quick Setup
 

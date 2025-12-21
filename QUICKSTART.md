@@ -21,7 +21,7 @@ On your Mac, open Terminal and run:
 
 ```bash
 # Download
-git clone https://github.com/YOUR_USERNAME/Transcodarr.git
+git clone https://github.com/JacquesToT/Transcodarr.git
 cd Transcodarr
 
 # Make executable
@@ -243,4 +243,4 @@ which ffmpeg  # Should show /opt/homebrew/bin/ffmpeg
 
 - [Full Documentation](LIVE_TRANSCODING_GUIDE.md)
 - [Prerequisites](docs/PREREQUISITES.md)
-- [Issues](https://github.com/YOUR_USERNAME/Transcodarr/issues)
+- [Issues](https://github.com/JacquesToT/Transcodarr/issues)
