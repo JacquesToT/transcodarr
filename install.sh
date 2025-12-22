@@ -297,7 +297,7 @@ main_menu() {
         --header "What would you like to do?" \
         --cursor.foreground 212 \
         --selected.foreground 212 \
-        "🚀 First Time Setup (start here if this is your first node)" \
+        "First Time Setup (start here if this is your first node)" \
         "➕ Add Another Mac to Existing Setup" \
         "📊 Setup Monitoring (Prometheus/Grafana)" \
         "📖 View Documentation" \
@@ -305,7 +305,7 @@ main_menu() {
         "❌ Exit")
 
     case "$choice" in
-        "🚀 First Time Setup (start here if this is your first node)")
+        "First Time Setup (start here if this is your first node)")
             first_time_setup
             ;;
         "➕ Add Another Mac to Existing Setup")
@@ -334,7 +334,7 @@ first_time_setup() {
         --border-foreground 212 \
         --border double \
         --padding "1 2" \
-        "🚀 First Time Setup"
+        "First Time Setup"
 
     echo ""
     gum style --foreground 252 "This will guide you through setting up Transcodarr for the first time."
