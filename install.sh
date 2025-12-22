@@ -129,6 +129,26 @@ show_banner() {
         "Using Apple Silicon Macs with VideoToolbox"
 }
 
+# Ask to return to main menu or exit
+return_or_exit() {
+    echo ""
+    local choice
+    choice=$(gum choose \
+        --header "What would you like to do?" \
+        --cursor.foreground 212 \
+        "⬅️  Return to main menu" \
+        "❌ Exit installer")
+
+    case "$choice" in
+        "⬅️  Return to main menu")
+            main_menu
+            ;;
+        "❌ Exit installer")
+            exit 0
+            ;;
+    esac
+}
+
 # Show backup warning
 show_backup_warning() {
     echo ""
@@ -466,7 +486,7 @@ complete_first_setup() {
         gum style --foreground 252 "Try running manually:"
         gum style --foreground 39 "  ssh -t ${nas_user}@${nas_ip} \"sudo mkdir -p ${jellyfin_config}/rffmpeg/.ssh\""
         echo ""
-        gum confirm "Return to main menu?" && main_menu
+        return_or_exit
         return
     fi
 
@@ -479,7 +499,7 @@ complete_first_setup() {
     else
         gum style --foreground 196 "❌ Failed to copy files"
         echo ""
-        gum confirm "Return to main menu?" && main_menu
+        return_or_exit
         return
     fi
 
@@ -494,7 +514,7 @@ complete_first_setup() {
         gum style --foreground 39 "  sudo cp -a ~/rffmpeg/. ${jellyfin_config}/rffmpeg/"
         gum style --foreground 39 "  sudo chmod 600 ${jellyfin_config}/rffmpeg/.ssh/id_rsa"
         echo ""
-        gum confirm "Return to main menu?" && main_menu
+        return_or_exit
         return
     fi
 
@@ -531,7 +551,7 @@ complete_first_setup() {
         "sudo docker exec jellyfin rffmpeg add ${mac_ip} --weight 2"
 
     echo ""
-    gum confirm "Return to main menu?" && main_menu
+    return_or_exit
 }
 
 # Setup an additional Mac (uses existing SSH key from Synology)
@@ -602,7 +622,7 @@ setup_additional_mac() {
 
                 if [[ -z "$public_key" ]] || [[ ! "$public_key" =~ ^ssh- ]]; then
                     gum style --foreground 196 "Invalid SSH key format"
-                    gum confirm "Return to main menu?" && main_menu
+                    return_or_exit
                     return
                 fi
                 ;;
@@ -675,7 +695,7 @@ setup_additional_mac() {
         "sudo docker exec jellyfin rffmpeg status"
 
     echo ""
-    gum confirm "Return to main menu?" && main_menu
+    return_or_exit
 }
 
 # Register a new Mac on the server
@@ -691,7 +711,7 @@ register_new_mac() {
     if ! gum confirm "Has the new Mac been prepared?"; then
         gum style --foreground 226 "Please run the installer on the new Mac first."
         echo ""
-        gum confirm "Return to main menu?" && main_menu
+        return_or_exit
         return
     fi
 
@@ -726,7 +746,7 @@ register_new_mac() {
         "docker exec jellyfin rffmpeg status"
 
     echo ""
-    gum confirm "Return to main menu?" && main_menu
+    return_or_exit
 }
 
 # Uninstall Transcodarr
@@ -758,7 +778,7 @@ setup_apple_silicon() {
             fi
         else
             gum style --foreground 196 "⚠️  This must be run on a Mac!"
-            gum confirm "Return to main menu?" && main_menu
+            return_or_exit
             return
         fi
     fi
@@ -814,7 +834,7 @@ setup_apple_silicon() {
         if gum confirm "View Prerequisites documentation?"; then
             gum pager < "$SCRIPT_DIR/docs/PREREQUISITES.md"
         fi
-        gum confirm "Return to main menu?" && main_menu
+        return_or_exit
         return
     fi
 
@@ -900,7 +920,7 @@ show_manual_next_steps() {
     gum style --foreground 252 "or read the documentation."
 
     echo ""
-    gum confirm "Return to main menu?" && main_menu
+    return_or_exit
 }
 
 # Jellyfin/Docker Setup
@@ -1034,7 +1054,7 @@ setup_jellyfin() {
     echo ""
     gum style --foreground 46 "✅ Jellyfin setup complete!"
     echo ""
-    gum confirm "Return to main menu?" && main_menu
+    return_or_exit
 }
 
 # Setup monitoring
@@ -1264,7 +1284,7 @@ scrape_configs:
     fi
 
     echo ""
-    gum confirm "Return to main menu?" && main_menu
+    return_or_exit
 }
 
 # Quick setup for users who already have Prometheus/Grafana
@@ -1327,7 +1347,7 @@ show_monitoring_existing_setup() {
     fi
 
     echo ""
-    gum confirm "Return to main menu?" && main_menu
+    return_or_exit
 }
 
 # View documentation
