@@ -338,26 +338,26 @@ first_time_setup() {
 
     echo ""
     gum style --foreground 252 "This will guide you through setting up Transcodarr for the first time."
-    gum style --foreground 252 "You'll need to run this installer on TWO machines:"
+    gum style --foreground 252 "You'll need to run this installer on TWO machines, in this order:"
     echo ""
-    gum style --foreground 39 "  1. Your Mac      → to install FFmpeg and configure it as transcode node"
-    gum style --foreground 39 "  2. Your NAS/PC   → to configure Jellyfin with rffmpeg"
+    gum style --foreground 39 "  1. Synology/NAS  → FIRST: generate SSH keys and config files"
+    gum style --foreground 39 "  2. Your Mac      → SECOND: install FFmpeg and setup NFS mounts"
     echo ""
 
     local where_am_i
     where_am_i=$(gum choose \
         --header "Where are you running this installer right now?" \
         --cursor.foreground 212 \
-        "🖥️  On the Mac (that will do transcoding)" \
-        "🐳 On the NAS/Server (where Jellyfin runs)" \
+        "🐳 On the Synology/NAS (do this FIRST)" \
+        "🖥️  On the Mac (do this SECOND)" \
         "⬅️  Back to main menu")
 
     case "$where_am_i" in
-        "🖥️  On the Mac (that will do transcoding)")
-            setup_apple_silicon
-            ;;
-        "🐳 On the NAS/Server (where Jellyfin runs)")
+        "🐳 On the Synology/NAS (do this FIRST)")
             setup_jellyfin
+            ;;
+        "🖥️  On the Mac (do this SECOND)")
+            setup_apple_silicon
             ;;
         "⬅️  Back to main menu")
             main_menu

@@ -61,6 +61,34 @@ You can have **one node** (single Mac) or **multiple nodes** (several Macs shari
 
 # Installation Guide
 
+**Important:** You need to set up TWO machines. Follow this order:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  SETUP ORDER                                                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   PART A: SYNOLOGY (do this first)                              │
+│   ├── Step 0: Install Git, Homebrew, Gum                        │
+│   ├── Step 1: Enable NFS                                        │
+│   ├── Step 2: Download & run installer                          │
+│   └── Step 3: Copy files to Jellyfin                            │
+│                                                                  │
+│   PART B: MAC (do this second)                                  │
+│   ├── Step 4: Enable Remote Login                               │
+│   ├── Step 5: Run installer on Mac                              │
+│   └── Step 6: Add SSH key                                       │
+│                                                                  │
+│   PART C: FINALIZE (back to Synology)                           │
+│   └── Step 7: Add Mac to rffmpeg & test                         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+# PART A: Synology Setup (Do This First)
+
 ## Step 0: Install Required Tools on Synology
 
 Before you can run the installer, you need three tools on your Synology:
@@ -109,30 +137,18 @@ brew install gum
 
 ---
 
-## Step 1: Download Transcodarr
-
-On your Synology (via SSH):
-
-```bash
-git clone https://github.com/JacquesToT/Transcodarr.git ~/Transcodarr
-cd ~/Transcodarr
-chmod +x install.sh
-```
-
----
-
-## Step 2: Prepare Your NAS (NFS Settings)
+## Step 1: Enable NFS on Synology
 
 The Mac needs to access your media files via NFS.
 
-### 2.1 Enable NFS on Synology
+### 1.1 Enable NFS Service
 
 1. Open **Control Panel** → **File Services**
 2. Go to **NFS** tab
 3. Enable NFS service
 4. Click **Apply**
 
-### 2.2 Set NFS Permissions on Shared Folders
+### 1.2 Set NFS Permissions on Shared Folders
 
 1. Open **Control Panel** → **Shared Folder**
 2. Select your **media folder** (e.g., `data` or `media`)
@@ -151,7 +167,7 @@ The Mac needs to access your media files via NFS.
 
 5. Repeat for the **docker folder** if you want the Mac to write transcoded files back
 
-### 2.3 Find Your Paths
+### 1.3 Find Your Paths
 
 **Media Path:**
 ```
@@ -174,9 +190,42 @@ This is where Jellyfin stores temporary transcoded video segments.
 
 ---
 
-## Step 3: Prepare Your Mac
+## Step 2: Download & Run Installer on Synology
 
-### 3.1 Enable Remote Login (SSH)
+On your Synology (via SSH):
+
+```bash
+git clone https://github.com/JacquesToT/Transcodarr.git ~/Transcodarr
+cd ~/Transcodarr
+chmod +x install.sh
+./install.sh
+```
+
+Choose **"First Time Setup"** and follow the prompts. The installer will:
+- Ask for your Mac's IP address and username
+- Generate SSH keys for rffmpeg
+- Create config files in the `output/` folder
+
+---
+
+## Step 3: Copy Files to Jellyfin
+
+After the installer finishes, copy the generated files to your Jellyfin config:
+
+```bash
+# The installer will show you the exact commands to run
+# They will look something like this:
+sudo mkdir -p /volume1/docker/jellyfin/rffmpeg
+sudo cp -a output/rffmpeg/. /volume1/docker/jellyfin/rffmpeg/
+```
+
+---
+
+# PART B: Mac Setup (Do This Second)
+
+## Step 4: Prepare Your Mac
+
+### 4.1 Enable Remote Login (SSH)
 
 The Jellyfin server needs SSH access to send FFmpeg commands to your Mac.
 
@@ -185,53 +234,79 @@ The Jellyfin server needs SSH access to send FFmpeg commands to your Mac.
 3. Enable **Remote Login**
 4. Under "Allow access for": select **All users** or add specific users
 
-### 3.2 Note Your Username
+### 4.2 Note Your Information
 
-Your Mac username is needed for SSH connections. Find it:
-
-- **System Settings** → **Users & Groups** → Your account name
-- Or run in Terminal: `whoami`
-
-**Note:** If your username has spaces (e.g., "John Smith"), that's fine - the installer handles it.
-
-### 3.3 Check Your Mac's IP Address
-
-1. **System Settings** → **Network**
-2. Select your connection (Wi-Fi or Ethernet)
-3. Click **Details**
-4. Note the **IP Address**
+Have these ready:
+- **Mac username**: Run `whoami` in Terminal
+- **Mac IP address**: System Settings → Network → Details
 
 **Tip:** For reliability, assign a static IP to your Mac in your router settings.
 
 ---
 
-## Step 4: Gather Your Information
+## Step 5: Run Installer on Mac
 
-Before running the installer, have these ready:
-
-| Item | Example | Where to find it |
-|------|---------|------------------|
-| NAS IP address | `192.168.1.100` | Synology: Control Panel → Network |
-| Mac IP address | `192.168.1.50` | Mac: System Settings → Network |
-| Mac username | `John Smith` | Mac: `whoami` in Terminal |
-| NAS media path | `/volume1/data/media` | Where your movies/TV shows are stored |
-| Jellyfin config path | `/volume1/docker/jellyfin` | Where Jellyfin config is stored |
-
----
-
-## Step 5: Run the Installer
+On your Mac, open Terminal:
 
 ```bash
+git clone https://github.com/JacquesToT/Transcodarr.git ~/Transcodarr
 cd ~/Transcodarr
+chmod +x install.sh
 ./install.sh
 ```
 
-The interactive installer will guide you through:
-- Apple Silicon Mac setup (FFmpeg, NFS, energy settings)
-- Jellyfin/Docker configuration (rffmpeg, SSH keys)
-- Monitoring setup (Prometheus/Grafana) — *optional*
+Choose **"First Time Setup"** → **"On the Mac"**. The installer will:
+- Install Homebrew (if needed)
+- Install FFmpeg with VideoToolbox
+- Configure energy settings (prevent sleep)
+- Set up NFS mount points
 
-> **Note:** On first-time Mac setup, a **reboot is required** for NFS mount points to work. The installer will show you exactly what to do after rebooting.
+> **Note:** A **reboot is required** after Mac setup for NFS mount points to work.
+
+---
+
+## Step 6: Add SSH Key to Your Mac
+
+The installer on Synology generated an SSH key. You need to add it to your Mac.
+
+The installer showed you a command like this - run it **on your Mac**:
+
+```bash
+mkdir -p ~/.ssh && echo 'ssh-ed25519 AAAA...' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+```
+
+---
+
+# PART C: Finalize (Back to Synology)
+
+## Step 7: Add Mac to rffmpeg & Test
+
+On your Synology, restart Jellyfin and add your Mac:
+
+```bash
+# Restart Jellyfin to load the new rffmpeg config
+docker restart jellyfin
+
+# Wait 30 seconds for Jellyfin to start
+sleep 30
+
+# Add your Mac as a transcode node
+docker exec jellyfin rffmpeg add YOUR_MAC_IP --weight 2
+
+# Check that it worked
+docker exec jellyfin rffmpeg status
+```
+
+You should see your Mac listed as "idle":
+```
++------------------+--------+--------+
+| Host             | State  | Weight |
++------------------+--------+--------+
+| 192.168.1.50     | idle   | 2      |
++------------------+--------+--------+
+```
+
+**Done!** Your Mac is now handling transcoding for Jellyfin.
 
 ---
 
