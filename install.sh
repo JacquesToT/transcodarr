@@ -18,10 +18,21 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# Detect if running on Synology
+is_synology() {
+    [[ -f /etc/synoinfo.conf ]] || [[ -d /volume1 ]]
+}
+
 # Setup Homebrew in PATH (needed after fresh install)
 setup_brew_path() {
     # Check if brew is already in PATH
     if command -v brew &> /dev/null; then
+        return 0
+    fi
+
+    # Check Synology-Homebrew location first (installed via MrCee/Synology-Homebrew)
+    if [[ -f "$HOME/homebrew/bin/brew" ]]; then
+        export PATH="$HOME/homebrew/bin:$PATH"
         return 0
     fi
 
@@ -57,6 +68,27 @@ setup_brew_path() {
 check_gum() {
     # First make sure Homebrew is in PATH
     if ! setup_brew_path; then
+        # On Synology, don't try to install standard Homebrew - it won't work
+        if is_synology; then
+            echo -e "${RED}════════════════════════════════════════════════════════════${NC}"
+            echo -e "${RED}  Homebrew is not installed on your Synology!${NC}"
+            echo -e "${RED}════════════════════════════════════════════════════════════${NC}"
+            echo ""
+            echo -e "${YELLOW}Synology requires a special version of Homebrew.${NC}"
+            echo -e "${YELLOW}Please install it first by running these commands:${NC}"
+            echo ""
+            echo -e "${GREEN}git clone https://github.com/MrCee/Synology-Homebrew.git ~/Synology-Homebrew${NC}"
+            echo -e "${GREEN}~/Synology-Homebrew/install-synology-homebrew.sh${NC}"
+            echo ""
+            echo -e "${YELLOW}When asked, select option 1 (Minimal installation).${NC}"
+            echo -e "${YELLOW}After installation, run: ${GREEN}brew install gum${NC}"
+            echo ""
+            echo -e "${YELLOW}Then close your terminal, reconnect via SSH, and run ./install.sh again.${NC}"
+            echo ""
+            exit 1
+        fi
+
+        # On Mac, we can install standard Homebrew
         echo -e "${YELLOW}Homebrew is not installed.${NC}"
         echo -e "${YELLOW}Installing Homebrew (this may take a few minutes)...${NC}"
         echo ""
