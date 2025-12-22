@@ -539,40 +539,14 @@ show_summary() {
     gum style --foreground 212 --border normal --padding "1 2" \
         "📋 WHAT TO DO NOW (you are on Synology)"
 
+    # STEP 1: Install SSH key on Mac first (while we're still on Synology)
     echo ""
-    gum style --foreground 226 "STEP 1: Copy files to Jellyfin config (run these here on Synology):"
-    echo ""
-    gum style --foreground 39 --border normal --padding "0 1" \
-        "sudo mkdir -p ${jellyfin_config}/rffmpeg/.ssh ${cache_path}"
-    echo ""
-    gum style --foreground 39 --border normal --padding "0 1" \
-        "sudo cp -a ${OUTPUT_DIR}/rffmpeg/. ${jellyfin_config}/rffmpeg/"
-    echo ""
-    gum style --foreground 39 --border normal --padding "0 1" \
-        "sudo chown -R 911:911 ${jellyfin_config}/rffmpeg"
-
-    echo ""
-    gum style --foreground 226 "STEP 2: Restart Jellyfin (run here on Synology):"
-    echo ""
-    gum style --foreground 39 --border normal --padding "0 1" \
-        "docker restart jellyfin"
-
-    echo ""
-    gum style --foreground 212 --border double --padding "1 2" \
-        "STEP 3: NOW GO TO YOUR MAC" \
-        "" \
-        "Run the installer on your Mac:" \
-        "  git clone https://github.com/JacquesToT/Transcodarr.git ~/Transcodarr" \
-        "  cd ~/Transcodarr && ./install.sh" \
-        "" \
-        "Choose: First Time Setup → On the Mac"
-
-    echo ""
-    gum style --foreground 226 "STEP 4: Add SSH key to your Mac"
-    gum style --foreground 252 "We can install the SSH key on your Mac from here (requires Mac password once)."
+    gum style --foreground 226 "STEP 1: Add SSH key to your Mac"
+    gum style --foreground 252 "We can install the SSH key on your Mac from here."
+    gum style --foreground 252 "(Make sure Remote Login is enabled on your Mac first!)"
     echo ""
 
-    if gum confirm "Install SSH key on Mac now? (you'll need to enter your Mac password)"; then
+    if gum confirm "Install SSH key on Mac now? (requires Mac password once)"; then
         echo ""
         gum style --foreground 212 "Connecting to Mac at ${mac_ip}..."
         gum style --foreground 252 "Enter your Mac password when prompted:"
@@ -584,18 +558,50 @@ show_summary() {
             gum style --foreground 46 "✅ SSH key installed on Mac!"
         else
             echo ""
-            gum style --foreground 196 "❌ Failed to install SSH key. You can do it manually:"
+            gum style --foreground 196 "❌ Failed to install SSH key. You can do it manually on your Mac:"
             gum style --foreground 39 --border normal --padding "0 1" \
                 "mkdir -p ~/.ssh && echo '${public_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
         fi
     else
         echo ""
-        gum style --foreground 252 "Run this command ON YOUR MAC after Mac setup:"
+        gum style --foreground 252 "Run this command ON YOUR MAC later:"
         echo ""
         gum style --foreground 39 --border normal --padding "0 1" \
             "mkdir -p ~/.ssh && echo '${public_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
     fi
 
+    # STEP 2: Copy files to Jellyfin
+    echo ""
+    gum style --foreground 226 "STEP 2: Copy files to Jellyfin config (run these here on Synology):"
+    echo ""
+    gum style --foreground 39 --border normal --padding "0 1" \
+        "sudo mkdir -p ${jellyfin_config}/rffmpeg/.ssh ${cache_path}"
+    echo ""
+    gum style --foreground 39 --border normal --padding "0 1" \
+        "sudo cp -a ${OUTPUT_DIR}/rffmpeg/. ${jellyfin_config}/rffmpeg/"
+    echo ""
+    gum style --foreground 39 --border normal --padding "0 1" \
+        "sudo chown -R 911:911 ${jellyfin_config}/rffmpeg"
+
+    # STEP 3: Restart Jellyfin
+    echo ""
+    gum style --foreground 226 "STEP 3: Restart Jellyfin (run here on Synology):"
+    echo ""
+    gum style --foreground 39 --border normal --padding "0 1" \
+        "docker restart jellyfin"
+
+    # STEP 4: Go to Mac
+    echo ""
+    gum style --foreground 212 --border double --padding "1 2" \
+        "STEP 4: NOW GO TO YOUR MAC" \
+        "" \
+        "Run the installer on your Mac:" \
+        "  git clone https://github.com/JacquesToT/Transcodarr.git ~/Transcodarr" \
+        "  cd ~/Transcodarr && ./install.sh" \
+        "" \
+        "Choose: First Time Setup → On the Mac"
+
+    # STEP 5: Add Mac to rffmpeg
     echo ""
     gum style --foreground 226 "STEP 5: Add Mac to rffmpeg (after Mac setup is complete):"
     echo ""
