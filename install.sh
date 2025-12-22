@@ -444,13 +444,14 @@ complete_first_setup() {
     fi
 
     # Step 3: Move files to final location with sudo
+    # Note: use cp -a to preserve hidden folders like .ssh
     gum style --foreground 245 "Step 3/3: Moving files to Jellyfin folder (needs sudo)..."
-    if ssh -t "${nas_user}@${nas_ip}" "sudo cp -r ~/rffmpeg/* ${jellyfin_config}/rffmpeg/ && sudo chmod 600 ${jellyfin_config}/rffmpeg/.ssh/id_rsa && sudo chmod 644 ${jellyfin_config}/rffmpeg/.ssh/id_rsa.pub && rm -rf ~/rffmpeg" 2>/dev/null; then
+    if ssh -t "${nas_user}@${nas_ip}" "sudo cp -a ~/rffmpeg/. ${jellyfin_config}/rffmpeg/ && sudo chmod 600 ${jellyfin_config}/rffmpeg/.ssh/id_rsa && sudo chmod 644 ${jellyfin_config}/rffmpeg/.ssh/id_rsa.pub && rm -rf ~/rffmpeg" 2>/dev/null; then
         gum style --foreground 46 "✅ Files moved to ${jellyfin_config}/rffmpeg/"
     else
         gum style --foreground 196 "❌ Failed to move files"
         gum style --foreground 252 "Try running manually on Synology:"
-        gum style --foreground 39 "  sudo cp -r ~/rffmpeg/* ${jellyfin_config}/rffmpeg/"
+        gum style --foreground 39 "  sudo cp -a ~/rffmpeg/. ${jellyfin_config}/rffmpeg/"
         gum style --foreground 39 "  sudo chmod 600 ${jellyfin_config}/rffmpeg/.ssh/id_rsa"
         echo ""
         gum confirm "Return to main menu?" && main_menu
