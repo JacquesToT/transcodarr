@@ -537,42 +537,51 @@ show_summary() {
 
     echo ""
     gum style --foreground 212 --border normal --padding "1 2" \
-        "📋 QUICK START - What to do now:" \
+        "📋 WHAT TO DO NOW (you are on Synology)"
+
+    echo ""
+    gum style --foreground 226 "STEP 1: Copy files to Jellyfin config (run these here on Synology):"
+    echo ""
+    gum style --foreground 39 --border normal --padding "0 1" \
+        "sudo mkdir -p ${jellyfin_config}/rffmpeg/.ssh ${cache_path}"
+    echo ""
+    gum style --foreground 39 --border normal --padding "0 1" \
+        "sudo cp -a ${OUTPUT_DIR}/rffmpeg/. ${jellyfin_config}/rffmpeg/"
+    echo ""
+    gum style --foreground 39 --border normal --padding "0 1" \
+        "sudo chown -R 911:911 ${jellyfin_config}/rffmpeg"
+
+    echo ""
+    gum style --foreground 226 "STEP 2: Restart Jellyfin (run here on Synology):"
+    echo ""
+    gum style --foreground 39 --border normal --padding "0 1" \
+        "docker restart jellyfin"
+
+    echo ""
+    gum style --foreground 212 --border double --padding "1 2" \
+        "STEP 3: NOW GO TO YOUR MAC" \
         "" \
-        "Just open a new terminal window and copy-paste these commands!"
+        "Run the installer on your Mac:" \
+        "  git clone https://github.com/JacquesToT/Transcodarr.git ~/Transcodarr" \
+        "  cd ~/Transcodarr && ./install.sh" \
+        "" \
+        "Choose: First Time Setup → On the Mac"
 
     echo ""
-    gum style --foreground 226 "STEP 1: Add SSH key to your Mac (${mac_ip})"
-    gum style --foreground 252 "Run this command ON YOUR MAC:"
+    gum style --foreground 226 "STEP 4: Add SSH key to your Mac"
+    gum style --foreground 252 "After Mac setup, run this command ON YOUR MAC:"
     echo ""
-    gum style --foreground 39 "mkdir -p ~/.ssh && echo '${public_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+    gum style --foreground 39 --border normal --padding "0 1" \
+        "mkdir -p ~/.ssh && echo '${public_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
 
     echo ""
-    gum style --foreground 226 "STEP 2: Copy files to Synology (${nas_ip})"
-    gum style --foreground 252 "Run these commands ONE BY ONE (copy ONLY the command, not the description):"
-    echo ""
-    gum style --foreground 245 "Command 1 - Create folders on Synology:"
+    gum style --foreground 226 "STEP 5: Add Mac to rffmpeg (back on Synology):"
     echo ""
     gum style --foreground 39 --border normal --padding "0 1" \
-        "ssh -t ${nas_user}@${nas_ip} \"sudo mkdir -p ${jellyfin_config}/rffmpeg/.ssh ${cache_path}\""
-    echo ""
-    gum style --foreground 245 "Command 2 - Copy files (if scp fails, use rsync below):"
+        "docker exec jellyfin rffmpeg add ${mac_ip} --weight 2"
     echo ""
     gum style --foreground 39 --border normal --padding "0 1" \
-        "scp -r ${OUTPUT_DIR}/rffmpeg/* ${nas_user}@${nas_ip}:${jellyfin_config}/rffmpeg/"
-    echo ""
-    gum style --foreground 245 "Alternative if scp fails (use rsync instead):"
-    echo ""
-    gum style --foreground 39 --border normal --padding "0 1" \
-        "rsync -avz -e ssh ${OUTPUT_DIR}/rffmpeg/ ${nas_user}@${nas_ip}:${jellyfin_config}/rffmpeg/"
-    echo ""
-    gum style --foreground 226 "💡 TIP: Type 'yes' if asked about fingerprint, enter password when prompted"
-
-    echo ""
-    gum style --foreground 226 "STEP 3: Start Jellyfin and add Mac"
-    gum style --foreground 245 "Run these on your Synology (via SSH or in the Docker folder):"
-    gum style --foreground 39 "docker compose up -d"
-    gum style --foreground 39 "docker exec jellyfin rffmpeg add ${mac_ip} --weight 2"
+        "docker exec jellyfin rffmpeg status"
 
     echo ""
     gum style --foreground 252 "For detailed instructions, read: ${OUTPUT_DIR}/SETUP_INSTRUCTIONS.md"
