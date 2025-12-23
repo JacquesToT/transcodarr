@@ -698,52 +698,136 @@ setup_additional_mac() {
     return_or_exit
 }
 
-# Register a new Mac on the server
+# Register a new Mac on the server (run from Synology)
 register_new_mac() {
-    gum style --foreground 212 "📝 Register New Mac"
+    gum style --foreground 212 "📝 Add Another Mac (from Synology)"
     echo ""
-    gum style --foreground 252 "Make sure the new Mac has already been set up with:"
-    gum style --foreground 39 "  • FFmpeg installed (via this installer or Homebrew)"
-    gum style --foreground 39 "  • Remote Login (SSH) enabled"
-    gum style --foreground 39 "  • SSH key from Jellyfin added to ~/.ssh/authorized_keys"
+    gum style --foreground 252 "I'll help you add a new Mac to your existing setup."
+    gum style --foreground 252 "This will install the SSH key and register it with rffmpeg."
     echo ""
 
-    if ! gum confirm "Has the new Mac been prepared?"; then
-        gum style --foreground 226 "Please run the installer on the new Mac first."
-        echo ""
-        return_or_exit
-        return
+    # Get Jellyfin config path
+    gum style --foreground 252 "Where is your Jellyfin config folder?"
+    local jellyfin_config=$(gum input --placeholder "/volume1/docker/jellyfin" --prompt "Jellyfin config: " --value "/volume1/docker/jellyfin")
+
+    # Check if SSH key exists
+    local ssh_key_path="${jellyfin_config}/rffmpeg/.ssh/id_rsa.pub"
+    local public_key=""
+
+    if [[ -f "$ssh_key_path" ]]; then
+        public_key=$(cat "$ssh_key_path")
+        gum style --foreground 46 "✅ Found existing SSH key"
+    else
+        # Try output folder
+        local output_key="${SCRIPT_DIR}/output/rffmpeg/.ssh/id_rsa.pub"
+        if [[ -f "$output_key" ]]; then
+            public_key=$(cat "$output_key")
+            gum style --foreground 46 "✅ Found SSH key in output folder"
+        else
+            gum style --foreground 196 "❌ No SSH key found!"
+            gum style --foreground 252 "Run 'First Time Setup' first to generate the SSH key."
+            echo ""
+            return_or_exit
+            return
+        fi
     fi
 
-    # Get current Mac's IP to show as hint
-    local this_mac_ip=$(ipconfig getifaddr en0 2>/dev/null || echo "")
-
+    # Get new Mac details
     echo ""
-    gum style --foreground 252 "Enter the IP address of the new Mac you want to add:"
-    if [[ -n "$this_mac_ip" ]]; then
-        gum style --foreground 245 "(This Mac's IP is: ${this_mac_ip})"
-    fi
+    gum style --foreground 252 "Enter the IP address of the NEW Mac you want to add:"
     local mac_ip=$(gum input --placeholder "192.168.1.51" --prompt "New Mac IP: ")
+
+    echo ""
+    gum style --foreground 252 "Enter the username on the new Mac:"
+    gum style --foreground 245 "(Run 'whoami' on the Mac to find it)"
+    local mac_user=$(gum input --placeholder "nick" --prompt "Mac username: ")
 
     echo ""
     gum style --foreground 252 "Enter the weight for this node (higher = more jobs, 1-10):"
     local weight=$(gum input --placeholder "2" --prompt "Weight: " --value "2")
 
+    # Step 1: Install SSH key on new Mac
     echo ""
-    gum style --foreground 212 "Run this command on your Synology/server:"
+    gum style --foreground 212 "STEP 1: Installing SSH key on new Mac..."
+    gum style --foreground 252 "Make sure Remote Login is enabled on the Mac first!"
+    gum style --foreground 245 "(System Settings → General → Sharing → Remote Login)"
+    echo ""
+
+    if gum confirm "Install SSH key on ${mac_ip} now?"; then
+        gum style --foreground 252 "Connecting to Mac... Enter the Mac password when prompted:"
+        echo ""
+
+        if ssh -o StrictHostKeyChecking=accept-new "${mac_user}@${mac_ip}" "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '${public_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"; then
+            echo ""
+            gum style --foreground 46 "✅ SSH key installed on Mac!"
+        else
+            echo ""
+            gum style --foreground 196 "❌ Failed to install SSH key"
+            gum style --foreground 252 "You can install it manually on the Mac:"
+            echo ""
+            gum style --foreground 39 --border normal --padding "0 1" \
+                "mkdir -p ~/.ssh && echo '${public_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+            echo ""
+
+            if ! gum confirm "Continue anyway?"; then
+                return_or_exit
+                return
+            fi
+        fi
+    else
+        gum style --foreground 252 "Run this command ON THE NEW MAC:"
+        echo ""
+        gum style --foreground 39 --border normal --padding "0 1" \
+            "mkdir -p ~/.ssh && echo '${public_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+    fi
+
+    # Step 2: Add Mac to rffmpeg
+    echo ""
+    gum style --foreground 212 "STEP 2: Adding Mac to rffmpeg..."
+    echo ""
+
+    # Check if rffmpeg is available
+    if docker exec jellyfin ls /usr/local/bin/rffmpeg &>/dev/null; then
+        if gum confirm "Add ${mac_ip} to rffmpeg now?"; then
+            if docker exec jellyfin rffmpeg add "${mac_ip}" --weight "${weight}" 2>&1; then
+                echo ""
+                gum style --foreground 46 "✅ Mac added to rffmpeg!"
+                echo ""
+                gum style --foreground 212 "Current status:"
+                docker exec jellyfin rffmpeg status
+            else
+                echo ""
+                gum style --foreground 196 "❌ Failed to add Mac. Try manually:"
+                gum style --foreground 39 --border normal --padding "0 1" \
+                    "docker exec jellyfin rffmpeg add ${mac_ip} --weight ${weight}"
+            fi
+        else
+            gum style --foreground 252 "Run this command when ready:"
+            echo ""
+            gum style --foreground 39 --border normal --padding "0 1" \
+                "docker exec jellyfin rffmpeg add ${mac_ip} --weight ${weight}"
+        fi
+    else
+        gum style --foreground 226 "⚠️  rffmpeg not found in Jellyfin container"
+        gum style --foreground 252 "Make sure Jellyfin has the rffmpeg mod installed, then run:"
+        echo ""
+        gum style --foreground 39 --border normal --padding "0 1" \
+            "docker exec jellyfin rffmpeg add ${mac_ip} --weight ${weight}"
+    fi
+
+    # Step 3: Remind about Mac setup
+    echo ""
+    gum style --foreground 212 "STEP 3: Setup the new Mac (if not done yet)"
+    gum style --foreground 252 "The new Mac needs FFmpeg and NFS mounts configured."
+    gum style --foreground 252 "Run the installer on the new Mac:"
     echo ""
     gum style --foreground 39 --border normal --padding "0 1" \
-        "docker exec jellyfin rffmpeg add ${mac_ip} --weight ${weight}"
+        "cd ~/Transcodarr && ./install.sh"
+    gum style --foreground 245 "Choose: Add Another Mac → On the NEW Mac"
 
     echo ""
-    gum style --foreground 245 "💡 If you get a permission error, try with sudo:"
-    gum style --foreground 39 --border normal --padding "0 1" \
-        "sudo docker exec jellyfin rffmpeg add ${mac_ip} --weight ${weight}"
-
-    echo ""
-    gum style --foreground 252 "Then verify with:"
-    gum style --foreground 39 --border normal --padding "0 1" \
-        "docker exec jellyfin rffmpeg status"
+    gum style --foreground 46 --border double --padding "1 2" \
+        "✅ Done! New Mac added to your setup."
 
     echo ""
     return_or_exit
