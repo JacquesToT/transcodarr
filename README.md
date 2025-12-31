@@ -149,7 +149,7 @@ Stay in the same terminal and install Gum:
 brew install gum
 ```
 
-**After Gum is installed:** Close the terminal completely and open a new one. Then SSH into your Synology again before continuing.
+**After Gum is installed: Close the terminal completely and open a new one. Then SSH into your Synology again before continuing.**
 
 ---
 
@@ -181,7 +181,7 @@ The Mac needs to access your media files via NFS.
 | Allow connections from non-privileged ports | Yes |
 | Allow users to access mounted subfolders | Yes |
 
-5. Repeat for the **docker folder** if you want the Mac to write transcoded files back
+5. **Repeat for the docker folder if you want the Mac to write transcoded files back**
 
 ### 1.3 Find Your Paths
 
