@@ -183,27 +183,6 @@ The Mac needs to access your media files via NFS.
 
 5. **Repeat for the docker folder if you want the Mac to write transcoded files back**
 
-### 1.3 Find Your Paths
-
-**Media Path:**
-```
-/volume1/data/media      ← Most common
-/volume1/video           ← Alternative
-/volume1/Media           ← Alternative
-```
-
-To check your actual path:
-```bash
-ls -la /volume1/
-```
-
-**Cache Path:**
-```
-/volume1/docker/jellyfin/cache
-```
-
-This is where Jellyfin stores temporary transcoded video segments.
-
 ---
 
 ## Step 2: Download & Run Installer on Synology
