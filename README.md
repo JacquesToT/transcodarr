@@ -244,7 +244,7 @@ services:
     ports:
       - 8096:8096
     environment:
-      - PUID=1000
+      - PUID=1026
       - PGID=100
       - TZ=Europe/Amsterdam
       - DOCKER_MODS=linuxserver/mods:jellyfin-rffmpeg    # ← ADD THIS
@@ -252,7 +252,7 @@ services:
     volumes:
       - /volume1/docker/jellyfin/config:/config
       - /volume1/docker/jellyfin/cache:/cache
-      - /volume1/media/video:/media:ro
+      - /volume1/media:/media:ro
 ```
 
 Then recreate the container:
