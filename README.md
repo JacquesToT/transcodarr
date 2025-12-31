@@ -231,22 +231,21 @@ Choose **"First Time Setup"** and follow the prompts. The installer will:
 
 ## Step 3: Copy rffmpeg Files to Jellyfin
 
-After the installer finishes, copy the generated files to your Jellyfin config:
+After the installer finishes, run these 3 commands on your Synology:
 
 ```bash
-# Create the required directories
-sudo mkdir -p /volume1/docker/jellyfin/rffmpeg
+# Command 1: Create the required directories
+sudo mkdir -p /volume1/docker/jellyfin/rffmpeg/.ssh
 sudo mkdir -p /volume1/docker/jellyfin/cache
 
-# Copy the rffmpeg files (the installer shows you the exact path)
+# Command 2: Copy the rffmpeg files (the installer shows you the exact path)
 sudo cp -a ~/Transcodarr/output/rffmpeg/. /volume1/docker/jellyfin/rffmpeg/
+
+# Command 3: Set permissions
+sudo chown -R 911:911 /volume1/docker/jellyfin/rffmpeg
 ```
 
-> **Important:** The rffmpeg files include SSH keys. These MUST exist before enabling the rffmpeg mod, otherwise Jellyfin will crash!
-
----
-
-> **Note:** We will configure the rffmpeg mod later in Step 7, after the Mac is fully set up. The mod requires at least one Mac host to be configured, otherwise Jellyfin will crash!
+> ⚠️ **DO NOT restart Jellyfin yet!** First complete the Mac setup (Part B), then enable the rffmpeg mod in Step 6.
 
 ---
 
