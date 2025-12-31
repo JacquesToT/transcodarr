@@ -255,6 +255,12 @@ services:
       - /volume1/media:/media:ro
 ```
 
+**First, create the required directories (if they don't exist):**
+```bash
+sudo mkdir -p /volume1/docker/jellyfin/config
+sudo mkdir -p /volume1/docker/jellyfin/cache
+```
+
 Then recreate the container:
 ```bash
 docker compose down && docker compose up -d
@@ -501,6 +507,7 @@ docker exec jellyfin rffmpeg add 192.168.1.51 --weight 4  # M4 Mac Studio (gets 
 |-------|----------|
 | `git: command not found` (Synology) | Run `export PATH="/volume1/@appstore/Git/bin:$PATH"` first |
 | `could not create leading directories` | Enable User Home in Control Panel → User & Group → Advanced |
+| `Bind mount failed: ... does not exist` | Create the missing directory with `sudo mkdir -p /volume1/docker/jellyfin/cache` |
 | SSH connection fails | Check Remote Login is enabled on Mac |
 | Video doesn't play | Verify libfdk-aac is installed |
 | Transcoding is slow | Check if using hardware encoder |
