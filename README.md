@@ -75,8 +75,8 @@ You can have **one node** (single Mac) or **multiple nodes** (several Macs shari
 │   ├── Step 0: Install Git, Homebrew, Gum                        │
 │   ├── Step 1: Enable NFS                                        │
 │   ├── Step 2: Download & run installer                          │
-│   ├── Step 3: Configure Jellyfin with rffmpeg mod               │
-│   └── Step 4: Copy rffmpeg files to Jellyfin                    │
+│   ├── Step 3: Copy rffmpeg files to Jellyfin                    │
+│   └── Step 4: Configure Jellyfin with rffmpeg mod               │
 │                                                                  │
 │   PART B: MAC (finish Mac setup)                                │
 │   ├── Step 5: Run installer on Mac                              │
@@ -230,14 +230,26 @@ Choose **"First Time Setup"** and follow the prompts. The installer will:
 
 ---
 
-## Step 3: Configure Jellyfin for rffmpeg
+## Step 3: Copy rffmpeg Files to Jellyfin
 
-**First, create the cache directory (if it doesn't exist):**
+After the installer finishes, copy the generated files to your Jellyfin config:
+
 ```bash
+# Create the required directories
+sudo mkdir -p /volume1/docker/jellyfin/rffmpeg
 sudo mkdir -p /volume1/docker/jellyfin/cache
+
+# Copy the rffmpeg files (the installer shows you the exact path)
+sudo cp -a ~/Transcodarr/output/rffmpeg/. /volume1/docker/jellyfin/rffmpeg/
 ```
 
-**Important:** Your Jellyfin container needs the rffmpeg mod. Without it, `docker exec jellyfin rffmpeg` won't work!
+> **Important:** The rffmpeg files include SSH keys. These MUST exist before enabling the rffmpeg mod, otherwise Jellyfin will crash!
+
+---
+
+## Step 4: Configure Jellyfin for rffmpeg
+
+**Now that the rffmpeg files are in place**, add the rffmpeg mod to Jellyfin.
 
 ### Option A: Using Docker Compose (Recommended)
 
@@ -293,19 +305,6 @@ docker exec jellyfin ls -la /usr/local/bin/rffmpeg
 ```
 
 You should see the rffmpeg files. If you get "No such file", the mod isn't loaded yet.
-
----
-
-## Step 4: Copy rffmpeg Files to Jellyfin
-
-After the installer finishes, copy the generated files to your Jellyfin config:
-
-```bash
-# The installer will show you the exact commands to run
-# They will look something like this:
-sudo mkdir -p /volume1/docker/jellyfin/rffmpeg
-sudo cp -a output/rffmpeg/. /volume1/docker/jellyfin/rffmpeg/
-```
 
 ---
 
@@ -490,6 +489,7 @@ docker exec jellyfin rffmpeg add 192.168.1.51 --weight 4  # M4 Mac Studio (gets 
 | `git: command not found` (Synology) | Run `export PATH="/volume1/@appstore/Git/bin:$PATH"` first |
 | `could not create leading directories` | Enable User Home in Control Panel → User & Group → Advanced |
 | `Bind mount failed: ... does not exist` | Create the missing directory with `sudo mkdir -p /volume1/docker/jellyfin/cache` |
+| Jellyfin crashes with rffmpeg mod | Copy rffmpeg files BEFORE adding DOCKER_MODS (Step 3 before Step 4) |
 | SSH connection fails | Check Remote Login is enabled on Mac |
 | Video doesn't play | Verify libfdk-aac is installed |
 | Transcoding is slow | Check if using hardware encoder |
