@@ -1007,31 +1007,33 @@ setup_jellyfin() {
     # Get configuration
     echo ""
     gum style --foreground 212 "📝 Configuration"
-    gum style --foreground 252 "I'll ask for 5 things, then generate all config files for you."
+    gum style --foreground 252 "I'll ask for 6 things, then generate all config files for you."
     echo ""
 
-    gum style --foreground 226 "1/5 - Mac (transcode node)"
+    gum style --foreground 226 "1/6 - Mac IP address"
     gum style --foreground 252 "This is the Apple Silicon Mac that will do the transcoding."
     gum style --foreground 252 "To find the IP: System Settings → Network → look for your IP address"
     MAC_IP=$(gum input --placeholder "192.168.1.50" --prompt "Mac IP address: ")
 
     echo ""
+    gum style --foreground 226 "2/6 - Mac username"
     gum style --foreground 252 "To find your username, run 'whoami' in Terminal on your Mac."
     MAC_USER=$(gum input --placeholder "nick" --prompt "Mac username: ")
 
     echo ""
-    gum style --foreground 226 "2/5 - Synology/NAS (where Jellyfin runs)"
+    gum style --foreground 226 "3/6 - Synology IP address"
     gum style --foreground 252 "This is where your Jellyfin Docker container runs."
     gum style --foreground 252 "To find the IP: Synology DSM → Control Panel → Network"
     NAS_IP=$(gum input --placeholder "192.168.1.100" --prompt "NAS IP address: ")
 
     echo ""
+    gum style --foreground 226 "4/6 - Synology username"
     gum style --foreground 252 "What is your SSH username for the Synology?"
     gum style --foreground 245 "(This is the account you use to log into DSM or SSH)"
     NAS_USER=$(gum input --placeholder "admin" --prompt "Synology username: ")
 
     echo ""
-    gum style --foreground 226 "3/5 - Cache folder path"
+    gum style --foreground 226 "5/6 - Cache folder path"
     gum style --foreground 212 "📂 What is the transcode cache?"
     gum style --foreground 252 "When the Mac transcodes, it writes output to a 'cache' folder."
     gum style --foreground 252 "Jellyfin reads from this folder to stream to you."
@@ -1042,7 +1044,7 @@ setup_jellyfin() {
     CACHE_PATH=$(gum input --placeholder "/volume1/docker/jellyfin/cache" --prompt "Cache path: " --value "/volume1/docker/jellyfin/cache")
 
     echo ""
-    gum style --foreground 226 "4/5 - Jellyfin config path"
+    gum style --foreground 226 "6/6 - Jellyfin config path"
     gum style --foreground 252 "Where is your Jellyfin config folder on the Synology?"
     gum style --foreground 245 "(This is where Jellyfin stores its database, settings, etc.)"
     JELLYFIN_CONFIG=$(gum input --placeholder "/volume1/docker/jellyfin" --prompt "Jellyfin config path: " --value "/volume1/docker/jellyfin")
