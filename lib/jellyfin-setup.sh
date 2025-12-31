@@ -572,28 +572,43 @@ show_summary() {
 
     # STEP 2: Copy files to Jellyfin
     echo ""
-    gum style --foreground 226 "STEP 2: Copy files to Jellyfin config (run these here on Synology):"
+    gum style --foreground 212 --border double --padding "1 2" \
+        "📋 SYNOLOGY COMMANDS" \
+        "" \
+        "Now open a NEW terminal and SSH into your Synology." \
+        "Run these 4 commands one by one:"
     echo ""
+
+    gum style --foreground 226 "Command 1: Create directories"
     gum style --foreground 39 --border normal --padding "0 1" \
         "sudo mkdir -p ${jellyfin_config}/rffmpeg/.ssh ${cache_path}"
     echo ""
+
+    gum style --foreground 226 "Command 2: Copy rffmpeg files"
     gum style --foreground 39 --border normal --padding "0 1" \
         "sudo cp -a ${OUTPUT_DIR}/rffmpeg/. ${jellyfin_config}/rffmpeg/"
     echo ""
+
+    gum style --foreground 226 "Command 3: Set permissions"
     gum style --foreground 39 --border normal --padding "0 1" \
         "sudo chown -R 911:911 ${jellyfin_config}/rffmpeg"
+    echo ""
 
-    # STEP 3: Restart Jellyfin
-    echo ""
-    gum style --foreground 226 "STEP 3: Restart Jellyfin (run here on Synology):"
-    echo ""
+    gum style --foreground 226 "Command 4: Restart Jellyfin"
     gum style --foreground 39 --border normal --padding "0 1" \
         "docker restart jellyfin"
 
-    # STEP 4: Go to Mac
+    echo ""
+    if ! gum confirm "Did you run all 4 commands on your Synology?"; then
+        gum style --foreground 252 "No problem! You can run them later. Continuing..."
+    else
+        gum style --foreground 46 "✅ Great! Jellyfin should now have rffmpeg configured."
+    fi
+
+    # STEP 2: Go to Mac
     echo ""
     gum style --foreground 212 --border double --padding "1 2" \
-        "STEP 4: NOW GO TO YOUR MAC" \
+        "STEP 2: NOW GO TO YOUR MAC" \
         "" \
         "Run the installer on your Mac:" \
         "  git clone https://github.com/JacquesToT/Transcodarr.git ~/Transcodarr" \
@@ -601,9 +616,9 @@ show_summary() {
         "" \
         "Choose: First Time Setup → On the Mac"
 
-    # STEP 5: Add Mac to rffmpeg
+    # STEP 3: Add Mac to rffmpeg
     echo ""
-    gum style --foreground 226 "STEP 5: Add Mac to rffmpeg (after Mac setup is complete):"
+    gum style --foreground 226 "STEP 3: Add Mac to rffmpeg (after Mac setup is complete):"
     echo ""
 
     # Check if rffmpeg is available in the Jellyfin container
