@@ -23,6 +23,14 @@ Offload live video transcoding van je NAS naar Apple Silicon Macs met hardware-a
 ## Quick Start
 
 ### Op Synology (via SSH):
+
+**Eerst (eenmalig):** Installeer Git via Package Center als je dat nog niet hebt.
+
+1. Open **Control Panel** → **User & Group** → **Advanced**
+2. Vink **"Enable user home service"** aan → Apply
+3. Open **Package Center** → zoek "Git" → Install
+
+**Dan:**
 ```bash
 git clone https://github.com/JacquesToT/Transcodarr.git ~/Transcodarr
 cd ~/Transcodarr && ./install.sh
