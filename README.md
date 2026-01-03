@@ -24,11 +24,18 @@ Offload live video transcoding van je NAS naar Apple Silicon Macs met hardware-a
 
 ### Op Synology (via SSH):
 
-**Eerst (eenmalig):** Installeer Git via Package Center als je dat nog niet hebt.
+**Eerst (eenmalig):**
 
 1. Open **Control Panel** → **User & Group** → **Advanced**
 2. Vink **"Enable user home service"** aan → Apply
 3. Open **Package Center** → zoek "Git" → Install
+4. Installeer Homebrew + Gum (via SSH):
+   ```bash
+   git clone https://github.com/MrCee/Synology-Homebrew.git ~/Synology-Homebrew
+   ~/Synology-Homebrew/install-synology-homebrew.sh
+   # Kies optie 1 (Minimal), sluit terminal, reconnect SSH
+   brew install gum
+   ```
 
 **Dan:**
 ```bash
