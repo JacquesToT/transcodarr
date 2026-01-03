@@ -67,6 +67,32 @@ get_system_name() {
 # SYNOLOGY DETECTION
 # ============================================================================
 
+# Check if NFS is enabled on Synology
+is_nfs_enabled() {
+    if ! is_synology; then
+        return 0  # Not Synology, skip check
+    fi
+
+    # Check if NFS service is running
+    if pgrep -x "nfsd" &> /dev/null; then
+        return 0  # NFS is running
+    fi
+
+    # Alternative check: look for NFS exports
+    if [[ -f /etc/exports ]] && [[ -s /etc/exports ]]; then
+        return 0  # Exports file exists and is not empty
+    fi
+
+    # Check via synology service status
+    if command -v synoservice &> /dev/null; then
+        if synoservice --status nfsd 2>/dev/null | grep -q "running"; then
+            return 0
+        fi
+    fi
+
+    return 1  # NFS not enabled
+}
+
 # Check if this is first-time setup on Synology
 # Returns 0 (true) if first time, 1 (false) if already set up
 is_first_time_synology() {

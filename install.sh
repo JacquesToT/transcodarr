@@ -101,8 +101,22 @@ wizard_synology() {
 
     # Step 1: NFS Setup
     show_step 1 5 "NFS Configureren"
-    show_nfs_instructions
-    wait_for_user "Heb je NFS ingeschakeld en de permissies ingesteld?"
+
+    # Check if NFS is already enabled
+    if is_nfs_enabled; then
+        show_skip "NFS service is al actief"
+        show_info "Controleer of je media en cache folders NFS permissies hebben."
+        echo ""
+        if ! ask_confirm "Zijn de NFS permissies al ingesteld?"; then
+            show_nfs_instructions
+            wait_for_user "Heb je de NFS permissies ingesteld?"
+        fi
+    else
+        show_warning "NFS is nog niet ingeschakeld op deze Synology!"
+        echo ""
+        show_nfs_instructions
+        wait_for_user "Heb je NFS ingeschakeld en de permissies ingesteld?"
+    fi
     mark_step_complete "nfs_setup"
 
     # Step 2: Collect configuration
