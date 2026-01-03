@@ -92,7 +92,12 @@ style 252 "Removing log files..."
 sudo rm -f /var/log/mount-nfs-media.log /var/log/mount-synology-cache.log /var/log/nfs-watchdog.log 2>/dev/null || true
 style 46 "  ✓ Removed log files"
 
-# 5. Optional: Remove node_exporter
+# 5. Remove Transcodarr state file
+style 252 "Removing state file..."
+rm -rf ~/.transcodarr 2>/dev/null || true
+style 46 "  ✓ Removed ~/.transcodarr"
+
+# 6. Optional: Remove node_exporter
 echo ""
 if confirm "Remove node_exporter (monitoring)?"; then
     brew services stop node_exporter 2>/dev/null || true
@@ -100,7 +105,7 @@ if confirm "Remove node_exporter (monitoring)?"; then
     style 46 "  ✓ Removed node_exporter"
 fi
 
-# 6. Optional: Remove FFmpeg
+# 7. Optional: Remove FFmpeg
 echo ""
 if confirm "Remove FFmpeg?"; then
     brew uninstall homebrew-ffmpeg/ffmpeg/ffmpeg 2>/dev/null || true
@@ -109,14 +114,14 @@ if confirm "Remove FFmpeg?"; then
     style 46 "  ✓ Removed FFmpeg"
 fi
 
-# 7. Optional: Reset energy settings
+# 8. Optional: Reset energy settings
 echo ""
 if confirm "Reset energy settings to defaults?"; then
     sudo pmset -a sleep 1 displaysleep 10 disksleep 10 powernap 1
     style 46 "  ✓ Reset energy settings"
 fi
 
-# 8. Optional: Remove synthetic links
+# 9. Optional: Remove synthetic links
 echo ""
 style 226 "⚠️  Synthetic links (/data, /config) require a reboot to remove"
 if confirm "Remove synthetic links? (requires reboot)"; then

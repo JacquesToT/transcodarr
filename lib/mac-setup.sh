@@ -1,57 +1,103 @@
 #!/bin/bash
 #
 # Mac Setup Module for Transcodarr
+# Refactored with idempotency and state persistence
 #
 
-# Install Homebrew if needed
+# Source dependencies (if not already sourced)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[[ -z "$STATE_DIR" ]] && source "$SCRIPT_DIR/state.sh"
+[[ -z "$RED" ]] && source "$SCRIPT_DIR/ui.sh"
+
+# ============================================================================
+# HOMEBREW
+# ============================================================================
+
+check_homebrew() {
+    command -v brew &> /dev/null
+}
+
 install_homebrew() {
-    if command -v brew &> /dev/null; then
-        gum style --foreground 46 "✓ Homebrew already installed"
+    if check_homebrew; then
+        show_skip "Homebrew is al geïnstalleerd"
         return 0
     fi
 
-    gum spin --spinner dot --title "Installing Homebrew..." -- \
+    show_what_this_does "Homebrew is een package manager voor macOS. Hiermee installeren we FFmpeg."
+
+    if command -v gum &> /dev/null; then
+        gum spin --spinner dot --title "Homebrew installeren..." -- \
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    else
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
 
     # Add to PATH for Apple Silicon
     if [[ $(uname -m) == "arm64" ]]; then
         eval "$(/opt/homebrew/bin/brew shellenv)"
-    fi
 
-    gum style --foreground 46 "✓ Homebrew installed"
-}
-
-# Install FFmpeg with VideoToolbox and libfdk-aac
-install_ffmpeg() {
-    # Check if FFmpeg is already installed with VideoToolbox
-    if [[ -f "/opt/homebrew/bin/ffmpeg" ]]; then
-        if /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "videotoolbox"; then
-            gum style --foreground 46 "✓ FFmpeg with VideoToolbox already installed"
-            return 0
+        # Add to .zprofile for future sessions
+        if ! grep -q 'eval "$(/opt/homebrew/bin/brew shellenv)"' ~/.zprofile 2>/dev/null; then
+            echo '' >> ~/.zprofile
+            echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
         fi
     fi
 
-    gum style --foreground 212 "Installing FFmpeg with VideoToolbox + libfdk-aac..."
-    gum style --foreground 252 "This may take a few minutes..."
+    if check_homebrew; then
+        show_result true "Homebrew geïnstalleerd"
+        mark_step_complete "homebrew"
+        return 0
+    else
+        show_result false "Homebrew installatie mislukt"
+        return 1
+    fi
+}
+
+# ============================================================================
+# FFMPEG
+# ============================================================================
+
+check_ffmpeg() {
+    [[ -f "/opt/homebrew/bin/ffmpeg" ]] && \
+        /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "videotoolbox"
+}
+
+check_ffmpeg_fdk_aac() {
+    [[ -f "/opt/homebrew/bin/ffmpeg" ]] && \
+        /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "libfdk_aac"
+}
+
+install_ffmpeg() {
+    if check_ffmpeg; then
+        show_skip "FFmpeg met VideoToolbox is al geïnstalleerd"
+        if check_ffmpeg_fdk_aac; then
+            show_info "libfdk-aac encoder beschikbaar"
+        fi
+        return 0
+    fi
+
+    show_what_this_does "FFmpeg converteert video. We installeren een versie met Apple's VideoToolbox voor hardware acceleratie."
+
+    echo ""
+    show_info "Dit kan enkele minuten duren..."
     echo ""
 
     # Add the tap
-    gum style --foreground 252 "Adding homebrew-ffmpeg tap..."
+    show_info "Toevoegen homebrew-ffmpeg tap..."
     if ! brew tap homebrew-ffmpeg/ffmpeg 2>&1; then
-        gum style --foreground 196 "✗ Failed to add homebrew-ffmpeg tap"
-        return 1
+        show_warning "Kon homebrew-ffmpeg tap niet toevoegen, probeer standaard FFmpeg..."
     fi
 
-    # Install FFmpeg
-    gum style --foreground 252 "Installing FFmpeg (this takes a while)..."
+    # Try to install with fdk-aac first
+    show_info "FFmpeg installeren..."
     if brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-fdk-aac 2>&1; then
-        gum style --foreground 46 "✓ FFmpeg installation completed"
+        show_result true "FFmpeg geïnstalleerd met fdk-aac"
     else
         # Try upgrade if already installed
-        gum style --foreground 226 "Trying upgrade instead..."
+        show_warning "Probeer upgrade..."
         if ! brew upgrade homebrew-ffmpeg/ffmpeg/ffmpeg 2>&1; then
             # Last resort: try regular ffmpeg
-            gum style --foreground 226 "Trying standard FFmpeg..."
+            show_warning "Probeer standaard FFmpeg..."
             brew install ffmpeg 2>&1 || true
         fi
     fi
@@ -59,44 +105,97 @@ install_ffmpeg() {
     echo ""
 
     # Verify installation
-    if [[ -f "/opt/homebrew/bin/ffmpeg" ]]; then
-        if /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "videotoolbox"; then
-            gum style --foreground 46 "✓ FFmpeg with VideoToolbox verified"
-        else
-            gum style --foreground 226 "⚠ VideoToolbox not found (software encoding will be used)"
-        fi
+    if check_ffmpeg; then
+        show_result true "FFmpeg met VideoToolbox geïnstalleerd"
+        mark_step_complete "ffmpeg"
 
-        if /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "libfdk_aac"; then
-            gum style --foreground 46 "✓ libfdk-aac encoder available"
+        if check_ffmpeg_fdk_aac; then
+            show_info "libfdk-aac encoder beschikbaar"
         else
-            gum style --foreground 226 "⚠ libfdk-aac not available (will use aac instead)"
+            show_warning "libfdk-aac niet beschikbaar (aac wordt gebruikt)"
         fi
+        return 0
     else
-        gum style --foreground 196 "✗ FFmpeg not found at /opt/homebrew/bin/ffmpeg"
-        gum style --foreground 252 "Try running manually: brew install ffmpeg"
+        if [[ -f "/opt/homebrew/bin/ffmpeg" ]]; then
+            show_warning "FFmpeg geïnstalleerd maar VideoToolbox niet gevonden"
+            show_info "Software encoding wordt gebruikt"
+            mark_step_complete "ffmpeg"
+            return 0
+        else
+            show_result false "FFmpeg niet gevonden"
+            show_info "Probeer handmatig: brew install ffmpeg"
+            return 1
+        fi
+    fi
+}
+
+# ============================================================================
+# SSH (REMOTE LOGIN)
+# ============================================================================
+
+check_ssh_enabled() {
+    # Check if sshd is running
+    pgrep -x sshd &> /dev/null || \
+    sudo systemsetup -getremotelogin 2>/dev/null | grep -q "On"
+}
+
+enable_ssh() {
+    if check_ssh_enabled; then
+        show_skip "Remote Login (SSH) is al ingeschakeld"
+        return 0
+    fi
+
+    show_what_this_does "Remote Login stelt Jellyfin in staat om FFmpeg opdrachten naar je Mac te sturen."
+
+    if sudo systemsetup -setremotelogin on 2>/dev/null; then
+        show_result true "Remote Login ingeschakeld"
+        mark_step_complete "ssh_enabled"
+        return 0
+    else
+        show_warning "Kon Remote Login niet automatisch inschakelen"
+        show_remote_login_instructions
+        if wait_for_user "Heb je Remote Login ingeschakeld?"; then
+            mark_step_complete "ssh_enabled"
+            return 0
+        fi
         return 1
     fi
 }
 
-# Global variable to track if reboot is needed
-NEEDS_REBOOT=false
+# ============================================================================
+# SYNTHETIC LINKS (/data, /config)
+# ============================================================================
 
-# Setup synthetic links for /data and /config
+check_synthetic_links() {
+    [[ -d "/data" ]] && [[ -d "/config" ]]
+}
+
+check_synthetic_conf() {
+    [[ -f "/etc/synthetic.conf" ]] && \
+        grep -q "^data" "/etc/synthetic.conf" && \
+        grep -q "^config" "/etc/synthetic.conf"
+}
+
 setup_synthetic_links() {
-    local synthetic_conf="/etc/synthetic.conf"
-
-    # Check if synthetic.conf exists and has correct entries
-    if [[ -f "$synthetic_conf" ]]; then
-        if grep -q "^data" "$synthetic_conf" && grep -q "^config" "$synthetic_conf"; then
-            gum style --foreground 46 "✓ Synthetic links already configured"
-            return 0
-        fi
+    if check_synthetic_links; then
+        show_skip "/data en /config bestaan al"
+        return 0
     fi
 
-    gum style --foreground 212 "Setting up synthetic links for /data and /config..."
-    gum style --foreground 226 "⚠ This requires sudo (reboot will be done at the end)"
+    if check_synthetic_conf; then
+        show_info "synthetic.conf is geconfigureerd, herstart nodig"
+        set_pending_reboot
+        return 2  # Special return code for "needs reboot"
+    fi
 
-    if gum confirm "Continue?"; then
+    show_what_this_does "We maken /data en /config mount points aan. Dit vereist een herstart."
+
+    show_explanation "Waarom synthetic links?" \
+        "macOS staat niet toe om mappen in / te maken." \
+        "Synthetic links zijn een speciale manier om dit toch te doen." \
+        "Na een herstart verschijnen /data en /config automatisch."
+
+    if ask_confirm "Synthetic links aanmaken? (vereist sudo)"; then
         # Create the backing directories
         sudo mkdir -p /System/Volumes/Data/data/media
         sudo mkdir -p /System/Volumes/Data/config/cache
@@ -105,22 +204,39 @@ setup_synthetic_links() {
         {
             echo -e "data\tSystem/Volumes/Data/data"
             echo -e "config\tSystem/Volumes/Data/config"
-        } | sudo tee "$synthetic_conf" > /dev/null
+        } | sudo tee /etc/synthetic.conf > /dev/null
 
-        NEEDS_REBOOT=true
-        gum style --foreground 46 "✓ Synthetic links configured"
-        gum style --foreground 245 "  (reboot required - will be done at the end)"
+        show_result true "Synthetic links geconfigureerd"
+        mark_step_complete "synthetic_links"
+        set_pending_reboot
+
+        return 2  # Needs reboot
+    else
+        show_warning "Synthetic links overgeslagen"
+        return 1
     fi
 }
 
-# Create NFS mount script for media
+# ============================================================================
+# NFS MOUNT SCRIPTS
+# ============================================================================
+
+check_mount_scripts() {
+    [[ -f "/usr/local/bin/mount-nfs-media.sh" ]] && \
+    [[ -f "/usr/local/bin/mount-synology-cache.sh" ]]
+}
+
 create_media_mount_script() {
     local nas_ip="$1"
     local media_path="$2"
     local script_path="/usr/local/bin/mount-nfs-media.sh"
 
-    gum style --foreground 212 "Creating NFS mount script..."
+    if [[ -f "$script_path" ]]; then
+        show_skip "Media mount script bestaat al"
+        return 0
+    fi
 
+    show_info "Media mount script aanmaken..."
     sudo mkdir -p /usr/local/bin
 
     sudo tee "$script_path" > /dev/null << EOF
@@ -157,16 +273,20 @@ log "NFS mounted: \$NFS_SHARE -> \$MOUNT_POINT"
 EOF
 
     sudo chmod +x "$script_path"
-    gum style --foreground 46 "✓ Media mount script created"
+    show_result true "Media mount script aangemaakt"
 }
 
-# Create NFS mount script for cache
 create_cache_mount_script() {
     local nas_ip="$1"
     local cache_path="$2"
     local script_path="/usr/local/bin/mount-synology-cache.sh"
 
-    gum style --foreground 212 "Creating cache mount script..."
+    if [[ -f "$script_path" ]]; then
+        show_skip "Cache mount script bestaat al"
+        return 0
+    fi
+
+    show_info "Cache mount script aanmaken..."
 
     sudo tee "$script_path" > /dev/null << EOF
 #!/bin/bash
@@ -200,14 +320,27 @@ fi
 EOF
 
     sudo chmod +x "$script_path"
-    gum style --foreground 46 "✓ Cache mount script created"
+    show_result true "Cache mount script aangemaakt"
 }
 
-# Create LaunchDaemon for persistent mounts
+# ============================================================================
+# LAUNCHDAEMONS
+# ============================================================================
+
+check_launch_daemons() {
+    [[ -f "/Library/LaunchDaemons/com.transcodarr.nfs-media.plist" ]] && \
+    [[ -f "/Library/LaunchDaemons/com.transcodarr.nfs-cache.plist" ]]
+}
+
 create_launch_daemons() {
     local plist_dir="/Library/LaunchDaemons"
 
-    gum style --foreground 212 "Creating LaunchDaemons for auto-mount..."
+    if check_launch_daemons; then
+        show_skip "LaunchDaemons bestaan al"
+        return 0
+    fi
+
+    show_info "LaunchDaemons aanmaken voor auto-mount..."
 
     # Media mount daemon
     sudo tee "$plist_dir/com.transcodarr.nfs-media.plist" > /dev/null << 'EOF'
@@ -253,163 +386,162 @@ EOF
     sudo launchctl load "$plist_dir/com.transcodarr.nfs-media.plist" 2>/dev/null || true
     sudo launchctl load "$plist_dir/com.transcodarr.nfs-cache.plist" 2>/dev/null || true
 
-    gum style --foreground 46 "✓ LaunchDaemons created and loaded"
+    show_result true "LaunchDaemons aangemaakt en geladen"
+    mark_step_complete "launch_daemons"
 }
 
-# Configure energy settings to prevent sleep
+# ============================================================================
+# ENERGY SETTINGS
+# ============================================================================
+
+check_energy_settings() {
+    local sleep_val
+    sleep_val=$(pmset -g 2>/dev/null | grep -E "^\s*sleep\s+" | awk '{print $2}')
+    [[ "$sleep_val" == "0" ]]
+}
+
 configure_energy_settings() {
-    gum style --foreground 212 "Configuring energy settings (prevent sleep)..."
-
-    sudo pmset -a sleep 0 displaysleep 0 disksleep 0 powernap 0 autorestart 1 womp 1
-
-    gum style --foreground 46 "✓ Energy settings configured"
-    gum style --foreground 252 "  • sleep=0, displaysleep=0, disksleep=0"
-    gum style --foreground 252 "  • autorestart=1 (after power failure)"
-    gum style --foreground 252 "  • womp=1 (Wake-on-LAN enabled)"
-}
-
-# Install and configure node_exporter for monitoring
-install_node_exporter() {
-    gum style --foreground 212 "Installing node_exporter for monitoring..."
-
-    brew install node_exporter 2>/dev/null || true
-    brew services start node_exporter 2>/dev/null || true
-
-    gum style --foreground 46 "✓ node_exporter installed and running on port 9100"
-}
-
-# Enable Remote Login (SSH)
-enable_ssh() {
-    gum style --foreground 212 "Enabling Remote Login (SSH)..."
-
-    # Check if already enabled
-    if sudo systemsetup -getremotelogin 2>/dev/null | grep -q "On"; then
-        gum style --foreground 46 "✓ Remote Login already enabled"
+    if check_energy_settings; then
+        show_skip "Energy settings zijn al geconfigureerd"
         return 0
     fi
 
-    sudo systemsetup -setremotelogin on 2>/dev/null || {
-        gum style --foreground 226 "⚠ Please enable Remote Login manually:"
-        gum style --foreground 252 "  System Preferences → Sharing → Remote Login"
-    }
+    show_what_this_does "We zetten slaapstand uit zodat je Mac altijd beschikbaar is voor transcoding."
+
+    sudo pmset -a sleep 0 displaysleep 0 disksleep 0 powernap 0 autorestart 1 womp 1
+
+    show_result true "Energy settings geconfigureerd"
+    show_info "sleep=0, autorestart=1, Wake-on-LAN=1"
+    mark_step_complete "energy_settings"
 }
 
-# Main setup function
+# ============================================================================
+# SSH KEY CHECK
+# ============================================================================
+
+check_transcodarr_ssh_key() {
+    [[ -f "$HOME/.ssh/authorized_keys" ]] && \
+        grep -q "transcodarr" "$HOME/.ssh/authorized_keys" 2>/dev/null
+}
+
+# ============================================================================
+# MAIN SETUP FUNCTION
+# ============================================================================
+
 run_mac_setup() {
     local nas_ip="$1"
     local media_path="$2"
     local cache_path="$3"
     local errors=0
+    local needs_reboot=false
 
     # Check if running on Mac
     if [[ "$OSTYPE" != "darwin"* ]]; then
-        gum style --foreground 196 "Error: This must be run on macOS"
+        show_error "Dit script moet op macOS draaien"
         return 1
     fi
 
-    gum style --foreground 212 "Starting Apple Silicon Mac setup..."
+    # Initialize state
+    if ! state_exists; then
+        create_state "mac"
+    fi
+    set_machine_type "mac"
+
+    # Save config to state
+    set_config "nas_ip" "$nas_ip"
+    set_config "media_path" "$media_path"
+    set_config "cache_path" "$cache_path"
+
     echo ""
 
-    # Run all setup steps (continue on error)
+    # Step 1: Homebrew
     install_homebrew || ((errors++))
     echo ""
+
+    # Step 2: FFmpeg
     install_ffmpeg || ((errors++))
     echo ""
+
+    # Step 3: SSH
     enable_ssh || ((errors++))
     echo ""
 
-    # Check for synthetic links and offer to set up
-    if [[ ! -d "/data" ]]; then
-        setup_synthetic_links || ((errors++))
-    else
-        gum style --foreground 46 "✓ /data directory exists"
+    # Step 4: Synthetic Links (may require reboot)
+    local synth_result
+    setup_synthetic_links
+    synth_result=$?
+    if [[ $synth_result -eq 2 ]]; then
+        needs_reboot=true
+    elif [[ $synth_result -ne 0 ]]; then
+        ((errors++))
     fi
-
     echo ""
-    create_media_mount_script "$nas_ip" "$media_path" || ((errors++))
-    create_cache_mount_script "$nas_ip" "$cache_path" || ((errors++))
-    create_launch_daemons || ((errors++))
-    echo ""
-    configure_energy_settings || ((errors++))
-    echo ""
-    install_node_exporter || ((errors++))
 
-    echo ""
-    if [[ $errors -eq 0 ]]; then
-        gum style --foreground 46 --border double --padding "1 2" \
-            "🎉 Apple Silicon Mac setup complete!"
-    else
-        gum style --foreground 226 --border double --padding "1 2" \
-            "⚠️  Setup completed with $errors warning(s)" \
-            "" \
-            "Some components may need manual configuration." \
-            "Check the messages above for details."
-    fi
-
-    # Handle reboot at the end
-    if [[ "$NEEDS_REBOOT" == true ]]; then
-        local mac_ip=$(ipconfig getifaddr en0 2>/dev/null || echo "<this-mac-ip>")
-
-        echo ""
-        gum style --foreground 226 --border double --padding "1 2" \
-            "🔄 REBOOT REQUIRED"
-
-        echo ""
-        gum style --foreground 212 "A reboot is needed for the NFS mount points (/data and /config) to appear."
-        echo ""
-        gum style --foreground 212 "📋 AFTER YOU REBOOT:"
-        echo ""
-
-        if grep -q "transcodarr-rffmpeg" ~/.ssh/authorized_keys 2>/dev/null; then
-            gum style --foreground 46 "✅ SSH key already installed (from Synology installer)"
-            echo ""
-            gum style --foreground 39 "Just go back to your Synology and run:"
-            gum style --foreground 252 "   docker exec jellyfin rffmpeg add ${mac_ip} --weight 2"
-        else
-            gum style --foreground 39 "1. Add the SSH key to this Mac"
-            gum style --foreground 252 "   The Synology installer showed you a command like:"
-            gum style --foreground 252 "   mkdir -p ~/.ssh && echo 'ssh-ed25519 ...' >> ~/.ssh/authorized_keys"
-            echo ""
-            gum style --foreground 39 "2. Go back to your Synology and run:"
-            gum style --foreground 252 "   docker exec jellyfin rffmpeg add ${mac_ip} --weight 2"
-        fi
-
-        echo ""
-        gum style --foreground 46 "✅ That's it! Your Mac is ready for transcoding."
-        echo ""
-
-        if gum confirm "Reboot now?"; then
-            gum style --foreground 212 "Rebooting in 3 seconds..."
+    # If reboot needed, stop here
+    if [[ "$needs_reboot" == true ]]; then
+        show_reboot_instructions "$(pwd)"
+        if ask_confirm "Nu herstarten?"; then
+            show_info "Herstarten over 3 seconden..."
             sleep 3
             sudo reboot
         else
-            echo ""
-            gum style --foreground 226 "⚠️  Remember to reboot before continuing!"
-            gum style --foreground 252 "Run 'sudo reboot' when ready."
+            show_warning "Vergeet niet te herstarten voordat je verdergaat!"
         fi
-    else
-        # Check if SSH key is already installed (from Synology installer)
-        local mac_ip=$(ipconfig getifaddr en0 2>/dev/null || echo "<this-mac-ip>")
-
-        echo ""
-        gum style --foreground 212 "📋 NEXT STEPS:"
-        echo ""
-
-        if grep -q "transcodarr-rffmpeg" ~/.ssh/authorized_keys 2>/dev/null; then
-            gum style --foreground 46 "✅ SSH key already installed (from Synology installer)"
-            echo ""
-            gum style --foreground 39 "Just go back to your Synology and run:"
-            gum style --foreground 252 "   docker exec jellyfin rffmpeg add ${mac_ip} --weight 2"
-        else
-            gum style --foreground 39 "1. Add the SSH key to this Mac"
-            gum style --foreground 252 "   The Synology installer showed you a command like:"
-            gum style --foreground 252 "   mkdir -p ~/.ssh && echo 'ssh-ed25519 ...' >> ~/.ssh/authorized_keys"
-            echo ""
-            gum style --foreground 39 "2. Go back to your Synology and run:"
-            gum style --foreground 252 "   docker exec jellyfin rffmpeg add ${mac_ip} --weight 2"
-        fi
-
-        echo ""
-        gum style --foreground 46 "✅ That's it! Your Mac is ready for transcoding."
+        return 2  # Special return code
     fi
+
+    # Step 5: Mount scripts (only if synthetic links exist)
+    if check_synthetic_links; then
+        create_media_mount_script "$nas_ip" "$media_path" || ((errors++))
+        create_cache_mount_script "$nas_ip" "$cache_path" || ((errors++))
+        create_launch_daemons || ((errors++))
+        echo ""
+    else
+        show_warning "Synthetic links niet gevonden, mount scripts overgeslagen"
+        echo ""
+    fi
+
+    # Step 6: Energy settings
+    configure_energy_settings || ((errors++))
+    echo ""
+
+    # Summary
+    if [[ $errors -eq 0 ]]; then
+        show_mac_summary "$nas_ip"
+    else
+        show_warning "Setup voltooid met $errors waarschuwing(en)"
+        show_info "Controleer de berichten hierboven voor details"
+    fi
+
+    # Show DOCKER_MODS instructions
+    local mac_ip
+    mac_ip=$(ipconfig getifaddr en0 2>/dev/null || echo "<MAC_IP>")
+    echo ""
+    show_docker_mods_instructions "$mac_ip"
+
+    return $errors
+}
+
+# Run setup after reboot (continues where we left off)
+run_mac_setup_after_reboot() {
+    # Load config from state
+    local nas_ip
+    local media_path
+    local cache_path
+
+    nas_ip=$(get_config "nas_ip")
+    media_path=$(get_config "media_path")
+    cache_path=$(get_config "cache_path")
+
+    if [[ -z "$nas_ip" ]]; then
+        show_error "Geen opgeslagen configuratie gevonden"
+        show_info "Voer de installer opnieuw uit"
+        return 1
+    fi
+
+    show_info "Verder met opgeslagen configuratie..."
+    show_info "NAS IP: $nas_ip"
+
+    clear_pending_reboot
+    run_mac_setup "$nas_ip" "$media_path" "$cache_path"
 }

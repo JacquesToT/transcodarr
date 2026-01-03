@@ -3,1490 +3,488 @@
 # Transcodarr Installer
 # Distributed Live Transcoding for Jellyfin using Apple Silicon Macs
 #
-# Requirements: gum (brew install gum)
+# Unified wizard-style installer with auto-detection
 #
 
-# Don't use set -e, we handle errors ourselves
+set +e  # Don't exit on error, we handle errors ourselves
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="1.0.0"
+VERSION="2.0.0"
 
-# Colors for non-gum fallback
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# Source library modules
+source "$SCRIPT_DIR/lib/state.sh"
+source "$SCRIPT_DIR/lib/detection.sh"
+source "$SCRIPT_DIR/lib/ui.sh"
+source "$SCRIPT_DIR/lib/mac-setup.sh"
+source "$SCRIPT_DIR/lib/jellyfin-setup.sh"
 
-# Detect if running on Synology
-is_synology() {
-    [[ -f /etc/synoinfo.conf ]] || [[ -d /volume1 ]]
-}
+# ============================================================================
+# HOMEBREW & GUM SETUP
+# ============================================================================
 
-# Setup Homebrew in PATH (needed after fresh install)
 setup_brew_path() {
-    # Check if brew is already in PATH
     if command -v brew &> /dev/null; then
         return 0
     fi
 
-    # Check Synology-Homebrew / Linuxbrew location (installed via MrCee/Synology-Homebrew)
+    # Synology-Homebrew / Linuxbrew
     if [[ -f "/home/linuxbrew/.linuxbrew/bin/brew" ]]; then
         eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
         return 0
     fi
 
-    # Check if Homebrew is installed but not in PATH (Apple Silicon location)
+    # Apple Silicon
     if [[ -f "/opt/homebrew/bin/brew" ]]; then
-        echo -e "${YELLOW}Homebrew is installed but not in your PATH.${NC}"
-        echo -e "${YELLOW}Adding Homebrew to PATH...${NC}"
-
-        # Add to current session
         eval "$(/opt/homebrew/bin/brew shellenv)"
-
-        # Add to .zprofile for future sessions
         if ! grep -q 'eval "$(/opt/homebrew/bin/brew shellenv)"' ~/.zprofile 2>/dev/null; then
             echo '' >> ~/.zprofile
             echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
-            echo -e "${GREEN}✓ Added Homebrew to ~/.zprofile for future sessions${NC}"
         fi
-
         return 0
     fi
 
-    # Check Intel Mac location
+    # Intel Mac
     if [[ -f "/usr/local/bin/brew" ]]; then
         eval "$(/usr/local/bin/brew shellenv)"
         return 0
     fi
 
-    # Homebrew not installed at all
     return 1
 }
 
-# Check for gum
-check_gum() {
-    # First make sure Homebrew is in PATH
+check_and_install_gum() {
     if ! setup_brew_path; then
-        # On Synology, don't try to install standard Homebrew - it won't work
         if is_synology; then
+            echo ""
             echo -e "${RED}════════════════════════════════════════════════════════════${NC}"
-            echo -e "${RED}  Homebrew is not installed on your Synology!${NC}"
+            echo -e "${RED}  Homebrew is niet geïnstalleerd op je Synology!${NC}"
             echo -e "${RED}════════════════════════════════════════════════════════════${NC}"
             echo ""
-            echo -e "${YELLOW}Synology requires a special version of Homebrew.${NC}"
-            echo -e "${YELLOW}Please install it first by running these commands:${NC}"
+            echo "Installeer Homebrew eerst met deze commando's:"
             echo ""
             echo -e "${GREEN}git clone https://github.com/MrCee/Synology-Homebrew.git ~/Synology-Homebrew${NC}"
             echo -e "${GREEN}~/Synology-Homebrew/install-synology-homebrew.sh${NC}"
             echo ""
-            echo -e "${YELLOW}When asked, select option 1 (Minimal installation).${NC}"
-            echo -e "${YELLOW}After installation, run: ${GREEN}brew install gum${NC}"
+            echo "Kies optie 1 (Minimal installation)."
+            echo "Daarna: brew install gum"
             echo ""
-            echo -e "${YELLOW}Then close your terminal, reconnect via SSH, and run ./install.sh again.${NC}"
-            echo ""
+            echo "Sluit je terminal, maak opnieuw SSH verbinding, en voer ./install.sh opnieuw uit."
             exit 1
         fi
 
-        # On Mac, we can install standard Homebrew
-        echo -e "${YELLOW}Homebrew is not installed.${NC}"
-        echo -e "${YELLOW}Installing Homebrew (this may take a few minutes)...${NC}"
-        echo ""
+        # Mac: install Homebrew
+        echo "Homebrew installeren..."
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-        # Setup PATH after install
-        if ! setup_brew_path; then
-            echo -e "${RED}Homebrew installation failed. Please install manually:${NC}"
-            echo '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+        setup_brew_path || {
+            echo "Homebrew installatie mislukt"
             exit 1
-        fi
-        echo -e "${GREEN}✓ Homebrew installed successfully!${NC}"
-        echo ""
+        }
     fi
 
-    # Now install gum if needed
+    # Install gum if needed
     if ! command -v gum &> /dev/null; then
-        echo -e "${YELLOW}Installing gum (for the interactive UI)...${NC}"
+        echo "Gum installeren (voor interactieve UI)..."
         brew install gum
-        echo -e "${GREEN}✓ Gum installed successfully!${NC}"
-        echo ""
     fi
 }
 
-# Show banner
-show_banner() {
-    gum style \
-        --foreground 212 \
-        --border-foreground 212 \
-        --border double \
-        --align center \
-        --width 60 \
-        --margin "1 2" \
-        --padding "1 2" \
-        "🎬 TRANSCODARR v${VERSION}" \
-        "" \
-        "Distributed Live Transcoding for Jellyfin" \
-        "Using Apple Silicon Macs with VideoToolbox"
-}
+# ============================================================================
+# SYNOLOGY WIZARD
+# ============================================================================
 
-# Ask to return to main menu or exit
-return_or_exit() {
-    echo ""
-    local choice
-    choice=$(gum choose \
-        --header "What would you like to do?" \
-        --cursor.foreground 212 \
-        "⬅️  Return to main menu" \
-        "❌ Exit installer")
+wizard_synology() {
+    local mac_ip=""
+    local mac_user=""
+    local nas_ip=""
+    local cache_path=""
+    local jellyfin_config=""
 
-    case "$choice" in
-        "⬅️  Return to main menu")
-            main_menu
-            ;;
-        "❌ Exit installer")
-            exit 0
-            ;;
-    esac
-}
+    # Step 1: NFS Setup
+    show_step 1 5 "NFS Configureren"
+    show_nfs_instructions
+    wait_for_user "Heb je NFS ingeschakeld en de permissies ingesteld?"
+    mark_step_complete "nfs_setup"
 
-# Show backup warning
-show_backup_warning() {
-    echo ""
-    gum style \
-        --foreground 226 \
-        --border-foreground 226 \
-        --border normal \
-        --padding "1 2" \
-        "⚠️  BACKUP REMINDER" \
-        "" \
-        "Before continuing, make sure you have backups of:" \
-        "  • Jellyfin config folder" \
-        "  • Docker compose files" \
-        "  • Current Mac energy settings (pmset -g)"
-    echo ""
-
-    if ! gum confirm "I have created backups or understand the risks"; then
-        gum style --foreground 252 "Please create backups first, then run the installer again."
-        exit 0
-    fi
-}
-
-# Detect system type
-detect_system() {
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        if [[ $(uname -m) == "arm64" ]]; then
-            SYSTEM_TYPE="mac_apple_silicon"
-        else
-            SYSTEM_TYPE="mac_intel"
-        fi
-    elif [[ -f /etc/synoinfo.conf ]]; then
-        SYSTEM_TYPE="synology"
-    elif [[ -f /etc/os-release ]]; then
-        SYSTEM_TYPE="linux"
-    else
-        SYSTEM_TYPE="unknown"
-    fi
-    echo "$SYSTEM_TYPE"
-}
-
-# Verify Mac setup prerequisites
-verify_mac_setup() {
-    local nas_ip="$1"
-    local media_path="$2"
-    local all_passed=true
-
-    # Check 1: NAS IP provided
-    gum spin --spinner dot --title "Checking NAS IP..." -- sleep 0.5
-    if [[ -z "$nas_ip" ]]; then
-        gum style --foreground 196 "  ❌ NAS IP address is required"
-        all_passed=false
-    else
-        gum style --foreground 46 "  ✅ NAS IP provided: $nas_ip"
-    fi
-
-    # Check 2: Ping NAS
-    gum spin --spinner dot --title "Pinging NAS ($nas_ip)..." -- sleep 0.3
-    if ping -c 1 -W 2 "$nas_ip" &> /dev/null; then
-        gum style --foreground 46 "  ✅ NAS is reachable"
-    else
-        gum style --foreground 196 "  ❌ Cannot reach NAS at $nas_ip"
-        gum style --foreground 252 "     Check: Is the NAS powered on? Is the IP correct?"
-        all_passed=false
-    fi
-
-    # Check 3: Test NFS mount
-    gum spin --spinner dot --title "Testing NFS access..." -- sleep 0.3
-    local test_mount="/tmp/transcodarr-nfs-test-$$"
-    mkdir -p "$test_mount"
-
-    if sudo mount -t nfs -o resvport,ro,nolock,timeo=5 "${nas_ip}:${media_path}" "$test_mount" 2>/dev/null; then
-        gum style --foreground 46 "  ✅ NFS mount successful"
-        # Check if we can read files
-        if ls "$test_mount" &>/dev/null; then
-            local file_count=$(ls -1 "$test_mount" 2>/dev/null | wc -l | tr -d ' ')
-            gum style --foreground 46 "  ✅ Can read NFS share ($file_count items found)"
-        fi
-        sudo umount "$test_mount" 2>/dev/null
-    else
-        gum style --foreground 196 "  ❌ NFS mount failed"
-        gum style --foreground 252 "     Check: Is NFS enabled on Synology?"
-        gum style --foreground 252 "     Check: Does path $media_path exist?"
-        gum style --foreground 252 "     Check: Are NFS permissions set correctly?"
-        all_passed=false
-    fi
-    rmdir "$test_mount" 2>/dev/null
-
-    # Check 4: Homebrew
-    gum spin --spinner dot --title "Checking Homebrew..." -- sleep 0.3
-    if command -v brew &> /dev/null; then
-        gum style --foreground 46 "  ✅ Homebrew is installed"
-    else
-        gum style --foreground 226 "  ⚠️  Homebrew not installed (will be installed)"
-    fi
-
-    # Check 5: Check if this is Apple Silicon
-    gum spin --spinner dot --title "Checking Apple Silicon..." -- sleep 0.3
-    if [[ $(uname -m) == "arm64" ]]; then
-        gum style --foreground 46 "  ✅ Apple Silicon detected ($(sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -o 'M[0-9].*' || echo 'ARM64'))"
-    else
-        gum style --foreground 226 "  ⚠️  Intel Mac detected (no VideoToolbox hardware acceleration)"
-    fi
-
-    # Check 6: Remote Login (SSH) enabled
-    gum spin --spinner dot --title "Checking Remote Login..." -- sleep 0.3
-    if sudo systemsetup -getremotelogin 2>/dev/null | grep -q "On"; then
-        gum style --foreground 46 "  ✅ Remote Login (SSH) is enabled"
-    else
-        gum style --foreground 196 "  ❌ Remote Login (SSH) is not enabled"
-        gum style --foreground 252 "     Enable in: System Settings → General → Sharing → Remote Login"
-        all_passed=false
-    fi
+    # Step 2: Collect configuration
+    show_step 2 5 "Configuratie Verzamelen"
 
     echo ""
+    show_what_this_does "We hebben wat informatie nodig over je Mac en je NAS."
+    echo ""
 
-    if [[ "$all_passed" == true ]]; then
-        return 0
-    else
+    # Get Mac IP
+    mac_ip=$(ask_input "Mac IP adres" "192.168.1.50")
+    if [[ -z "$mac_ip" ]]; then
+        show_error "Mac IP is verplicht"
         return 1
     fi
-}
 
-# Show current node status (visual)
-show_node_status() {
-    echo ""
-    gum style --foreground 212 "📊 Current Transcode Nodes"
-    echo ""
-
-    # Check if this is a Mac
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        local hostname=$(hostname)
-        local ip=$(ipconfig getifaddr en0 2>/dev/null || echo "unknown")
-        local chip=$(sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -o 'M[0-9].*' | head -1 || echo "Unknown")
-
-        # Check if FFmpeg is installed
-        if [[ -f "/opt/homebrew/bin/ffmpeg" ]]; then
-            local ffmpeg_status="✅ Installed"
-        else
-            local ffmpeg_status="❌ Not installed"
+    # Validate Mac IP
+    show_info "Controleren of Mac bereikbaar is..."
+    if ! ping -c1 -W2 "$mac_ip" &>/dev/null; then
+        show_warning "Mac op $mac_ip niet bereikbaar. Controleer het IP adres."
+        if ! ask_confirm "Toch doorgaan?"; then
+            return 1
         fi
-
-        # Check NFS mounts
-        if mount | grep -q "/data/media"; then
-            local nfs_status="✅ Mounted"
-        else
-            local nfs_status="❌ Not mounted"
-        fi
-
-        gum style --border normal --padding "1 2" --border-foreground 39 \
-            "🖥️  This Mac: $hostname" \
-            "   IP: $ip" \
-            "   Chip: $chip" \
-            "   FFmpeg: $ffmpeg_status" \
-            "   NFS: $nfs_status"
-    fi
-    echo ""
-}
-
-# Main menu
-main_menu() {
-    # Show node status first
-    show_node_status
-
-    local choice
-    choice=$(gum choose \
-        --header "What would you like to do?" \
-        --cursor.foreground 212 \
-        --selected.foreground 212 \
-        "First Time Setup (start here if this is your first node)" \
-        "➕ Add Another Mac to Existing Setup" \
-        "📊 Setup Monitoring (Prometheus/Grafana)" \
-        "📖 View Documentation" \
-        "🗑️  Uninstall from this Mac" \
-        "❌ Exit")
-
-    case "$choice" in
-        "First Time Setup (start here if this is your first node)")
-            first_time_setup
-            ;;
-        "➕ Add Another Mac to Existing Setup")
-            add_another_node
-            ;;
-        "📊 Setup Monitoring (Prometheus/Grafana)")
-            setup_monitoring
-            ;;
-        "📖 View Documentation")
-            view_docs
-            ;;
-        "🗑️  Uninstall from this Mac")
-            uninstall_transcodarr
-            ;;
-        "❌ Exit")
-            gum style --foreground 212 "Goodbye! 👋"
-            exit 0
-            ;;
-    esac
-}
-
-# First time setup - guided flow for new users
-first_time_setup() {
-    gum style \
-        --foreground 212 \
-        --border-foreground 212 \
-        --border double \
-        --padding "1 2" \
-        "First Time Setup"
-
-    echo ""
-    gum style --foreground 252 "This will guide you through setting up Transcodarr for the first time."
-    gum style --foreground 252 "You'll need to run this installer on TWO machines, in this order:"
-    echo ""
-    gum style --foreground 39 "  1. Synology/NAS  → FIRST: generate SSH keys and config files"
-    gum style --foreground 39 "  2. Your Mac      → SECOND: install FFmpeg and setup NFS mounts"
-    echo ""
-
-    local where_am_i
-    where_am_i=$(gum choose \
-        --header "Where are you running this installer right now?" \
-        --cursor.foreground 212 \
-        "🐳 On the Synology/NAS (do this FIRST)" \
-        "🖥️  On the Mac (do this SECOND)" \
-        "⬅️  Back to main menu" \
-        "❌ Exit installer")
-
-    case "$where_am_i" in
-        "🐳 On the Synology/NAS (do this FIRST)")
-            setup_jellyfin
-            ;;
-        "🖥️  On the Mac (do this SECOND)")
-            setup_apple_silicon
-            ;;
-        "⬅️  Back to main menu")
-            main_menu
-            ;;
-        "❌ Exit installer")
-            exit 0
-            ;;
-    esac
-}
-
-# Add another Mac node to existing setup
-add_another_node() {
-    gum style \
-        --foreground 212 \
-        --border-foreground 212 \
-        --border normal \
-        --padding "1 2" \
-        "➕ Add Another Mac"
-
-    echo ""
-    gum style --foreground 252 "You already have Transcodarr working and want to add another Mac."
-    gum style --foreground 252 "This will use the EXISTING SSH key from your first setup."
-    echo ""
-
-    local where_am_i
-    where_am_i=$(gum choose \
-        --header "Where are you running this right now?" \
-        --cursor.foreground 212 \
-        "🖥️  On the NEW Mac (that I want to add)" \
-        "🐳 On the NAS/Server (to register the new Mac)" \
-        "⬅️  Back to main menu" \
-        "❌ Exit installer")
-
-    case "$where_am_i" in
-        "🖥️  On the NEW Mac (that I want to add)")
-            setup_additional_mac
-            ;;
-        "🐳 On the NAS/Server (to register the new Mac)")
-            register_new_mac
-            ;;
-        "⬅️  Back to main menu")
-            main_menu
-            ;;
-        "❌ Exit installer")
-            exit 0
-            ;;
-    esac
-}
-
-# Complete first setup - copy SSH key to Synology when first setup wasn't finished
-complete_first_setup() {
-    local nas_ip="$1"
-    local nas_user="$2"
-    local jellyfin_config="$3"
-
-    gum style \
-        --foreground 212 \
-        --border-foreground 212 \
-        --border normal \
-        --padding "1 2" \
-        "🔧 Complete First Setup"
-
-    echo ""
-    gum style --foreground 252 "I'll help you copy the SSH key to your Synology."
-    echo ""
-
-    # Check if we have a local output folder with keys
-    local local_key_path="${SCRIPT_DIR}/output/rffmpeg/.ssh/id_rsa.pub"
-    local public_key=""
-
-    if [[ -f "$local_key_path" ]]; then
-        gum style --foreground 46 "✅ Found existing SSH key in output folder"
-        public_key=$(cat "$local_key_path")
     else
-        gum style --foreground 226 "⚠️  No SSH key found in output folder."
-        echo ""
-
-        if gum confirm "Generate a new SSH key?"; then
-            gum style --foreground 212 "Generating new SSH key..."
-            mkdir -p "${SCRIPT_DIR}/output/rffmpeg/.ssh"
-            ssh-keygen -t ed25519 -f "${SCRIPT_DIR}/output/rffmpeg/.ssh/id_rsa" -N "" -C "transcodarr-rffmpeg"
-            chmod 600 "${SCRIPT_DIR}/output/rffmpeg/.ssh/id_rsa"
-            chmod 644 "${SCRIPT_DIR}/output/rffmpeg/.ssh/id_rsa.pub"
-            public_key=$(cat "${SCRIPT_DIR}/output/rffmpeg/.ssh/id_rsa.pub")
-            gum style --foreground 46 "✅ SSH key generated"
-        else
-            main_menu
-            return
-        fi
+        show_result true "Mac bereikbaar op $mac_ip"
     fi
 
-    echo ""
-    gum style --foreground 212 "📤 Copying files to Synology..."
-    gum style --foreground 252 "This will:"
-    gum style --foreground 252 "  1. Create the rffmpeg folder on Synology"
-    gum style --foreground 252 "  2. Copy the SSH key and config files"
-    echo ""
-
-    # Step 1: Create directory on Synology
-    gum style --foreground 245 "Step 1/3: Creating folder on Synology..."
-    if ssh -t -o ConnectTimeout=10 "${nas_user}@${nas_ip}" "sudo mkdir -p ${jellyfin_config}/rffmpeg/.ssh && sudo chmod 755 ${jellyfin_config}/rffmpeg && sudo chmod 700 ${jellyfin_config}/rffmpeg/.ssh" 2>/dev/null; then
-        gum style --foreground 46 "✅ Folder created"
-    else
-        gum style --foreground 196 "❌ Failed to create folder"
-        gum style --foreground 252 "Try running manually:"
-        gum style --foreground 39 "  ssh -t ${nas_user}@${nas_ip} \"sudo mkdir -p ${jellyfin_config}/rffmpeg/.ssh\""
-        echo ""
-        return_or_exit
-        return
+    # Get Mac username
+    mac_user=$(ask_input "Mac gebruikersnaam" "$(whoami)")
+    if [[ -z "$mac_user" ]]; then
+        show_error "Mac gebruikersnaam is verplicht"
+        return 1
     fi
 
-    # Step 2: Copy files via tar to home, then move with sudo
-    gum style --foreground 245 "Step 2/3: Copying files to Synology..."
-
-    # First copy to home directory (no sudo needed)
-    if cd "${SCRIPT_DIR}/output" && tar czf - rffmpeg | ssh "${nas_user}@${nas_ip}" "tar xzf -" 2>/dev/null; then
-        gum style --foreground 46 "✅ Files copied to home folder"
-    else
-        gum style --foreground 196 "❌ Failed to copy files"
-        echo ""
-        return_or_exit
-        return
-    fi
-
-    # Step 3: Move files to final location with sudo
-    # Note: use cp -a to preserve hidden folders like .ssh
-    gum style --foreground 245 "Step 3/3: Moving files to Jellyfin folder (needs sudo)..."
-    if ssh -t "${nas_user}@${nas_ip}" "sudo cp -a ~/rffmpeg/. ${jellyfin_config}/rffmpeg/ && sudo chmod 600 ${jellyfin_config}/rffmpeg/.ssh/id_rsa && sudo chmod 644 ${jellyfin_config}/rffmpeg/.ssh/id_rsa.pub && rm -rf ~/rffmpeg" 2>/dev/null; then
-        gum style --foreground 46 "✅ Files moved to ${jellyfin_config}/rffmpeg/"
-    else
-        gum style --foreground 196 "❌ Failed to move files"
-        gum style --foreground 252 "Try running manually on Synology:"
-        gum style --foreground 39 "  sudo cp -a ~/rffmpeg/. ${jellyfin_config}/rffmpeg/"
-        gum style --foreground 39 "  sudo chmod 600 ${jellyfin_config}/rffmpeg/.ssh/id_rsa"
-        echo ""
-        return_or_exit
-        return
-    fi
-
-    echo ""
-    gum style --foreground 46 --border double --padding "1 2" \
-        "✅ First setup completed!"
-
-    echo ""
-    gum style --foreground 252 "The SSH key is now on your Synology."
-    gum style --foreground 252 "You can now add this Mac (and any other Macs) as transcode nodes."
-    echo ""
-
-    # Add key to this Mac's authorized_keys
-    gum style --foreground 212 "Adding SSH key to this Mac..."
-    mkdir -p ~/.ssh
-    chmod 700 ~/.ssh
-
-    if grep -q "$public_key" ~/.ssh/authorized_keys 2>/dev/null; then
-        gum style --foreground 46 "✅ SSH key already in authorized_keys"
-    else
-        echo "$public_key" >> ~/.ssh/authorized_keys
-        chmod 600 ~/.ssh/authorized_keys
-        gum style --foreground 46 "✅ SSH key added to ~/.ssh/authorized_keys"
-    fi
-
-    # Show command to register this Mac
-    local mac_ip=$(ipconfig getifaddr en0 2>/dev/null || echo "THIS_MAC_IP")
-
-    echo ""
-    gum style --foreground 212 "📋 Next: Register this Mac with rffmpeg"
-    gum style --foreground 245 "SSH into your Synology and run:"
-    echo ""
-    gum style --foreground 39 --border normal --padding "0 1" \
-        "sudo docker exec jellyfin rffmpeg add ${mac_ip} --weight 2"
-
-    echo ""
-    return_or_exit
-}
-
-# Setup an additional Mac (uses existing SSH key from Synology)
-setup_additional_mac() {
-    gum style \
-        --foreground 212 \
-        --border-foreground 212 \
-        --border normal \
-        --padding "1 2" \
-        "🖥️ Setup Additional Mac"
-
-    echo ""
-    gum style --foreground 252 "I'll set up this Mac and fetch the existing SSH key from your Synology."
-    echo ""
-
-    # First, get Synology details to fetch the existing key
-    gum style --foreground 226 "First, I need your Synology details to fetch the existing SSH key:"
-    echo ""
-
-    gum style --foreground 252 "What is your Synology's IP address?"
-    local nas_ip=$(gum input --placeholder "192.168.1.100" --prompt "Synology IP: ")
-
-    echo ""
-    gum style --foreground 252 "What is your SSH username for the Synology?"
-    local nas_user=$(gum input --placeholder "admin" --prompt "Synology username: ")
-
-    echo ""
-    gum style --foreground 252 "Where is your Jellyfin config folder?"
-    local jellyfin_config=$(gum input --placeholder "/volume1/docker/jellyfin" --prompt "Jellyfin config: " --value "/volume1/docker/jellyfin")
-
-    echo ""
-    gum style --foreground 212 "🔑 Fetching existing SSH key from Synology..."
-    echo ""
-
-    # Try to fetch the existing public key
-    local ssh_key_path="${jellyfin_config}/rffmpeg/.ssh/id_rsa.pub"
-    local public_key=""
-
-    public_key=$(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "${nas_user}@${nas_ip}" "cat ${ssh_key_path}" 2>/dev/null)
-
-    if [[ -z "$public_key" ]]; then
-        echo ""
-        gum style --foreground 226 "⚠️  Could not fetch the SSH key from Synology."
-        gum style --foreground 252 "This usually means the first setup was not completed."
-        echo ""
-
-        local recovery_choice
-        recovery_choice=$(gum choose \
-            --header "What would you like to do?" \
-            --cursor.foreground 212 \
-            "🔧 Complete first setup (copy SSH key to Synology)" \
-            "📝 Enter the SSH key manually" \
-            "⬅️  Back to main menu" \
-            "❌ Exit installer")
-
-        case "$recovery_choice" in
-            "🔧 Complete first setup (copy SSH key to Synology)")
-                complete_first_setup "$nas_ip" "$nas_user" "$jellyfin_config"
-                return
-                ;;
-            "📝 Enter the SSH key manually")
-                echo ""
-                gum style --foreground 252 "Get the key from your first Mac's output folder:"
-                gum style --foreground 39 "  cat ~/Transcodarr/output/rffmpeg/.ssh/id_rsa.pub"
-                echo ""
-                gum style --foreground 252 "Paste the SSH public key (starts with 'ssh-ed25519' or 'ssh-rsa'):"
-                public_key=$(gum input --placeholder "ssh-ed25519 AAAA..." --prompt "SSH key: " --width 80)
-
-                if [[ -z "$public_key" ]] || [[ ! "$public_key" =~ ^ssh- ]]; then
-                    gum style --foreground 196 "Invalid SSH key format"
-                    return_or_exit
-                    return
-                fi
-                ;;
-            "⬅️  Back to main menu")
-                main_menu
-                return
-                ;;
-            "❌ Exit installer")
-                exit 0
-                return
-                ;;
-        esac
-    fi
-
-    gum style --foreground 46 "✅ SSH key fetched successfully!"
-    echo ""
-
-    # Add the key to this Mac's authorized_keys
-    gum style --foreground 212 "Adding SSH key to this Mac..."
-    mkdir -p ~/.ssh
-    chmod 700 ~/.ssh
-
-    # Check if key already exists
-    if grep -q "$public_key" ~/.ssh/authorized_keys 2>/dev/null; then
-        gum style --foreground 46 "✅ SSH key already in authorized_keys"
-    else
-        echo "$public_key" >> ~/.ssh/authorized_keys
-        chmod 600 ~/.ssh/authorized_keys
-        gum style --foreground 46 "✅ SSH key added to ~/.ssh/authorized_keys"
-    fi
-
-    echo ""
-    gum style --foreground 212 "Do you also want to install FFmpeg and configure this Mac?"
-    echo ""
-
-    if gum confirm "Run Mac setup (FFmpeg, NFS, energy settings)?"; then
-        # Get NAS details for NFS
-        echo ""
-        gum style --foreground 252 "Enter the NFS path to your media files on the NAS:"
-        local media_path=$(gum input --placeholder "/volume1/data/media" --prompt "Media path: " --value "/volume1/data/media")
-
-        echo ""
-        gum style --foreground 252 "Enter the NFS path for the transcode cache:"
-        local cache_path=$(gum input --placeholder "${jellyfin_config}/cache" --prompt "Cache path: " --value "${jellyfin_config}/cache")
-
-        source "$SCRIPT_DIR/lib/mac-setup.sh"
-        run_mac_setup "$nas_ip" "$media_path" "$cache_path"
-    fi
-
-    # Show final instructions
-    local mac_ip=$(ipconfig getifaddr en0 2>/dev/null || echo "THIS_MAC_IP")
-
-    echo ""
-    gum style --foreground 46 --border double --padding "1 2" \
-        "✅ This Mac is ready!"
-
-    echo ""
-    gum style --foreground 212 "📋 Final step - Register this Mac on your Synology:"
-    echo ""
-    gum style --foreground 245 "SSH into your Synology:"
-    gum style --foreground 39 --border normal --padding "0 1" \
-        "ssh ${nas_user}@${nas_ip}"
-    echo ""
-    gum style --foreground 245 "Then run these commands:"
-    echo ""
-    gum style --foreground 39 --border normal --padding "0 1" \
-        "sudo docker exec jellyfin rffmpeg add ${mac_ip} --weight 2"
-    echo ""
-    gum style --foreground 39 --border normal --padding "0 1" \
-        "sudo docker exec jellyfin rffmpeg status"
-
-    echo ""
-    return_or_exit
-}
-
-# Register a new Mac on the server (run from Synology)
-register_new_mac() {
-    gum style --foreground 212 "📝 Add Another Mac (from Synology)"
-    echo ""
-    gum style --foreground 252 "I'll help you add a new Mac to your existing setup."
-    gum style --foreground 252 "This will install the SSH key and register it with rffmpeg."
-    echo ""
+    # Get NAS IP
+    local detected_nas_ip
+    detected_nas_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    [[ -z "$detected_nas_ip" ]] && detected_nas_ip="192.168.1.100"
+    nas_ip=$(ask_input "NAS IP adres" "$detected_nas_ip")
 
     # Get Jellyfin config path
-    gum style --foreground 252 "Where is your Jellyfin config folder?"
-    local jellyfin_config=$(gum input --placeholder "/volume1/docker/jellyfin" --prompt "Jellyfin config: " --value "/volume1/docker/jellyfin")
+    local detected_config
+    detected_config=$(detect_jellyfin_config)
+    jellyfin_config=$(ask_input "Jellyfin config folder" "$detected_config")
 
-    # Check if SSH key exists
-    local ssh_key_path="${jellyfin_config}/rffmpeg/.ssh/id_rsa.pub"
-    local public_key=""
+    # Get cache path
+    cache_path=$(ask_input "Transcode cache folder" "${jellyfin_config}/cache")
 
-    if [[ -f "$ssh_key_path" ]]; then
-        public_key=$(cat "$ssh_key_path")
-        gum style --foreground 46 "✅ Found existing SSH key"
-    else
-        # Try output folder
-        local output_key="${SCRIPT_DIR}/output/rffmpeg/.ssh/id_rsa.pub"
-        if [[ -f "$output_key" ]]; then
-            public_key=$(cat "$output_key")
-            gum style --foreground 46 "✅ Found SSH key in output folder"
-        else
-            gum style --foreground 196 "❌ No SSH key found!"
-            gum style --foreground 252 "Run 'First Time Setup' first to generate the SSH key."
-            echo ""
-            return_or_exit
-            return
-        fi
+    echo ""
+    show_info "Configuratie:"
+    echo "  Mac:           $mac_user@$mac_ip"
+    echo "  NAS:           $nas_ip"
+    echo "  Jellyfin:      $jellyfin_config"
+    echo "  Cache:         $cache_path"
+    echo ""
+
+    if ! ask_confirm "Klopt dit?"; then
+        show_info "Start opnieuw om andere waarden in te voeren."
+        return 1
     fi
 
-    # Get new Mac details
-    echo ""
-    gum style --foreground 252 "Enter the IP address of the NEW Mac you want to add:"
-    local mac_ip=$(gum input --placeholder "192.168.1.51" --prompt "New Mac IP: ")
+    mark_step_complete "config_collected"
+
+    # Step 3: Generate SSH key and config files
+    show_step 3 5 "Configuratie Genereren"
+    run_jellyfin_setup "$mac_ip" "$mac_user" "$nas_ip" "$cache_path" "$jellyfin_config"
+
+    # Steps 4-5 are handled inside run_jellyfin_setup (SSH key install, copy instructions)
 
     echo ""
-    gum style --foreground 252 "Enter the username on the new Mac:"
-    gum style --foreground 245 "(Run 'whoami' on the Mac to find it)"
-    local mac_user=$(gum input --placeholder "nick" --prompt "Mac username: ")
-
+    show_result true "Synology setup voltooid!"
     echo ""
-    gum style --foreground 252 "Enter the weight for this node (higher = more jobs, 1-10):"
-    local weight=$(gum input --placeholder "2" --prompt "Weight: " --value "2")
-
-    # Step 1: Install SSH key on new Mac
+    show_info "Ga nu naar je Mac en voer uit:"
     echo ""
-    gum style --foreground 212 "STEP 1: Installing SSH key on new Mac..."
-    gum style --foreground 252 "Make sure Remote Login is enabled on the Mac first!"
-    gum style --foreground 245 "(System Settings → General → Sharing → Remote Login)"
+    echo -e "  ${GREEN}cd ~/Transcodarr && ./install.sh${NC}"
     echo ""
-
-    if gum confirm "Install SSH key on ${mac_ip} now?"; then
-        gum style --foreground 252 "Connecting to Mac... Enter the Mac password when prompted:"
-        echo ""
-
-        if ssh -o StrictHostKeyChecking=accept-new "${mac_user}@${mac_ip}" "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '${public_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"; then
-            echo ""
-            gum style --foreground 46 "✅ SSH key installed on Mac!"
-        else
-            echo ""
-            gum style --foreground 196 "❌ Failed to install SSH key"
-            gum style --foreground 252 "You can install it manually on the Mac:"
-            echo ""
-            gum style --foreground 39 --border normal --padding "0 1" \
-                "mkdir -p ~/.ssh && echo '${public_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
-            echo ""
-
-            if ! gum confirm "Continue anyway?"; then
-                return_or_exit
-                return
-            fi
-        fi
-    else
-        gum style --foreground 252 "Run this command ON THE NEW MAC:"
-        echo ""
-        gum style --foreground 39 --border normal --padding "0 1" \
-            "mkdir -p ~/.ssh && echo '${public_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
-    fi
-
-    # Step 2: Add Mac to rffmpeg
-    echo ""
-    gum style --foreground 212 "STEP 2: Adding Mac to rffmpeg..."
-    echo ""
-
-    # Check if rffmpeg is available
-    if docker exec jellyfin ls /usr/local/bin/rffmpeg &>/dev/null; then
-        if gum confirm "Add ${mac_ip} to rffmpeg now?"; then
-            if docker exec jellyfin rffmpeg add "${mac_ip}" --weight "${weight}" 2>&1; then
-                echo ""
-                gum style --foreground 46 "✅ Mac added to rffmpeg!"
-                echo ""
-                gum style --foreground 212 "Current status:"
-                docker exec jellyfin rffmpeg status
-            else
-                echo ""
-                gum style --foreground 196 "❌ Failed to add Mac. Try manually:"
-                gum style --foreground 39 --border normal --padding "0 1" \
-                    "docker exec jellyfin rffmpeg add ${mac_ip} --weight ${weight}"
-            fi
-        else
-            gum style --foreground 252 "Run this command when ready:"
-            echo ""
-            gum style --foreground 39 --border normal --padding "0 1" \
-                "docker exec jellyfin rffmpeg add ${mac_ip} --weight ${weight}"
-        fi
-    else
-        gum style --foreground 226 "⚠️  rffmpeg not found in Jellyfin container"
-        gum style --foreground 252 "Make sure Jellyfin has the rffmpeg mod installed, then run:"
-        echo ""
-        gum style --foreground 39 --border normal --padding "0 1" \
-            "docker exec jellyfin rffmpeg add ${mac_ip} --weight ${weight}"
-    fi
-
-    # Step 3: Remind about Mac setup
-    echo ""
-    gum style --foreground 212 "STEP 3: Setup the new Mac (if not done yet)"
-    gum style --foreground 252 "The new Mac needs FFmpeg and NFS mounts configured."
-    gum style --foreground 252 "Run the installer on the new Mac:"
-    echo ""
-    gum style --foreground 39 --border normal --padding "0 1" \
-        "cd ~/Transcodarr && ./install.sh"
-    gum style --foreground 245 "Choose: Add Another Mac → On the NEW Mac"
-
-    echo ""
-    gum style --foreground 46 --border double --padding "1 2" \
-        "✅ Done! New Mac added to your setup."
-
-    echo ""
-    return_or_exit
 }
 
-# Uninstall Transcodarr
-uninstall_transcodarr() {
-    if [[ -f "$SCRIPT_DIR/uninstall.sh" ]]; then
-        "$SCRIPT_DIR/uninstall.sh"
-    else
-        gum style --foreground 196 "Uninstall script not found"
-    fi
-    main_menu
-}
+# ============================================================================
+# MAC WIZARD
+# ============================================================================
 
-# Apple Silicon Mac Setup
-setup_apple_silicon() {
-    gum style \
-        --foreground 39 \
-        --border-foreground 39 \
-        --border normal \
-        --padding "0 1" \
-        "🖥️ Apple Silicon Mac Setup"
+wizard_mac() {
+    local nas_ip=""
+    local media_path=""
+    local cache_path=""
 
-    local system=$(detect_system)
-    if [[ "$system" != "mac_apple_silicon" ]]; then
-        if [[ "$system" == "mac_intel" ]]; then
-            gum style --foreground 196 "⚠️  This Mac has an Intel chip (no VideoToolbox hardware acceleration)"
-            if ! gum confirm "Continue anyway?"; then
-                main_menu
-                return
-            fi
+    # Check for pending reboot first
+    if is_reboot_pending; then
+        show_info "Verder na herstart..."
+        clear_pending_reboot
+
+        # Check if synthetic links now exist
+        if check_synthetic_links; then
+            show_result true "/data en /config directories gevonden"
+            # Continue with post-reboot setup
+            run_mac_setup_after_reboot
+            return $?
         else
-            gum style --foreground 196 "⚠️  This must be run on a Mac!"
-            return_or_exit
-            return
+            show_error "Synthetic links niet gevonden. Herstart je Mac en probeer opnieuw."
+            return 1
         fi
     fi
 
-    # Show what will be installed
-    gum style --foreground 252 "This will install and configure:"
-    echo ""
-    gum style --foreground 39 "  • Homebrew (if not installed)"
-    gum style --foreground 39 "  • FFmpeg with VideoToolbox + libfdk-aac"
-    gum style --foreground 39 "  • NFS mount configuration for media"
-    gum style --foreground 39 "  • LaunchDaemons for persistent mounts"
-    gum style --foreground 39 "  • Energy settings (prevent sleep)"
-    gum style --foreground 39 "  • node_exporter for monitoring"
-    echo ""
+    # Step 1: Prerequisites
+    show_step 1 4 "Prerequisites Installeren"
 
-    if ! gum confirm "Continue with Apple Silicon Mac setup?"; then
-        main_menu
-        return
-    fi
+    install_homebrew
+    install_ffmpeg
+    enable_ssh
 
-    # Get configuration
-    echo ""
-    gum style --foreground 212 "📝 Configuration"
-    echo ""
-
-    gum style --foreground 252 "Enter the IP address of your Synology/NAS (where your media is stored):"
-    NAS_IP=$(gum input --placeholder "192.168.1.100" --prompt "NAS IP: ")
+    # Step 2: Get NAS info
+    show_step 2 4 "NAS Configuratie"
 
     echo ""
-    gum style --foreground 252 "Enter the NFS export path to your media files on the NAS:"
-    gum style --foreground 245 "(Example: /volume1/data/media - this is where your movies/shows are stored)"
-    MEDIA_PATH=$(gum input --placeholder "/volume1/data/media" --prompt "Media path: " --value "/volume1/data/media")
-
-    echo ""
-    gum style --foreground 212 "📂 What is the transcode cache?"
-    gum style --foreground 252 "When the Mac transcodes a video, it writes the output to a 'cache' folder."
-    gum style --foreground 252 "Jellyfin then reads from this folder to stream to you."
-    gum style --foreground 252 "Both Mac and Jellyfin need access to the SAME folder (via NFS)."
-    echo ""
-    gum style --foreground 252 "Enter the NFS export path for the transcode cache on the NAS:"
-    gum style --foreground 245 "(This is usually inside your Jellyfin config folder, e.g., /volume1/docker/jellyfin/cache)"
-    CACHE_PATH=$(gum input --placeholder "/volume1/docker/jellyfin/cache" --prompt "Cache path: " --value "/volume1/docker/jellyfin/cache")
-
-    echo ""
-    gum style --foreground 212 "🔍 Running pre-flight checks..."
+    show_what_this_does "We moeten weten waar je NAS staat en waar je media en cache staan."
     echo ""
 
-    # Run verification
-    if ! verify_mac_setup "$NAS_IP" "$MEDIA_PATH"; then
-        echo ""
-        gum style --foreground 196 "❌ Pre-flight checks failed. Please fix the issues above."
-        echo ""
-        if gum confirm "View Prerequisites documentation?"; then
-            gum pager < "$SCRIPT_DIR/docs/PREREQUISITES.md"
+    # Try to load from state first
+    nas_ip=$(get_config "nas_ip")
+    media_path=$(get_config "media_path")
+    cache_path=$(get_config "cache_path")
+
+    # If not in state, ask
+    if [[ -z "$nas_ip" ]]; then
+        nas_ip=$(ask_input "NAS/Synology IP adres" "192.168.1.100")
+    else
+        show_info "NAS IP uit opgeslagen configuratie: $nas_ip"
+        if ! ask_confirm "Klopt dit?"; then
+            nas_ip=$(ask_input "NAS/Synology IP adres" "$nas_ip")
         fi
-        return_or_exit
-        return
     fi
 
-    echo ""
-    gum style --foreground 46 "✅ All pre-flight checks passed!"
-    echo ""
-
-    if ! gum confirm "Continue with installation?"; then
-        main_menu
-        return
+    # Validate NAS IP
+    show_info "Controleren of NAS bereikbaar is..."
+    if ! ping -c1 -W2 "$nas_ip" &>/dev/null; then
+        show_warning "NAS op $nas_ip niet bereikbaar."
+        if ! ask_confirm "Toch doorgaan?"; then
+            return 1
+        fi
+    else
+        show_result true "NAS bereikbaar op $nas_ip"
     fi
 
+    if [[ -z "$media_path" ]]; then
+        media_path=$(ask_input "Media folder op NAS (NFS export)" "/volume1/data/media")
+    fi
+
+    if [[ -z "$cache_path" ]]; then
+        cache_path=$(ask_input "Cache folder op NAS (NFS export)" "/volume1/docker/jellyfin/cache")
+    fi
+
+    mark_step_complete "nas_config"
+
+    # Step 3: Synthetic links (may require reboot)
+    show_step 3 4 "Mount Points Aanmaken"
+
+    local synth_result
+    setup_synthetic_links
+    synth_result=$?
+
+    if [[ $synth_result -eq 2 ]]; then
+        # Needs reboot
+        show_reboot_instructions "$(pwd)"
+        if ask_confirm "Nu herstarten?"; then
+            show_info "Herstarten over 3 seconden..."
+            sleep 3
+            sudo reboot
+        else
+            show_warning "Vergeet niet te herstarten!"
+            show_info "Na herstart: cd $(pwd) && ./install.sh"
+        fi
+        return 0  # Exit cleanly, will continue after reboot
+    fi
+
+    # Step 4: NFS mounts and LaunchDaemons
+    show_step 4 4 "NFS Mounts Configureren"
+
+    create_media_mount_script "$nas_ip" "$media_path"
+    create_cache_mount_script "$nas_ip" "$cache_path"
+    create_launch_daemons
+    configure_energy_settings
+
+    # Summary
     echo ""
-    gum style --foreground 212 "🔧 Starting installation..."
+    show_mac_summary "$nas_ip"
+
+    # Show DOCKER_MODS instructions
+    local mac_ip
+    mac_ip=$(ipconfig getifaddr en0 2>/dev/null || echo "<MAC_IP>")
     echo ""
-
-    # Run installation steps with spinners
-    source "$SCRIPT_DIR/lib/mac-setup.sh"
-
-    run_mac_setup "$NAS_IP" "$MEDIA_PATH" "$CACHE_PATH"
-
-    # mac-setup.sh shows the next steps (add SSH key, go back to Synology)
-    # Just offer to return to menu or exit
-    return_or_exit
+    show_docker_mods_instructions "$mac_ip"
 }
 
-# Show manual next steps after Mac setup
-show_manual_next_steps() {
-    local nas_ip="$1"
-    local mac_ip=$(ipconfig getifaddr en0 2>/dev/null || echo "YOUR_MAC_IP")
-    local mac_user=$(whoami)
+# ============================================================================
+# ADD NODE WIZARD
+# ============================================================================
+
+wizard_add_node_synology() {
+    show_step 1 2 "Nieuwe Mac Toevoegen"
+
+    local mac_ip
+    local mac_user
+
+    mac_ip=$(ask_input "Nieuwe Mac IP adres" "192.168.1.51")
+    mac_user=$(ask_input "Mac gebruikersnaam" "$(whoami)")
+
+    show_step 2 2 "SSH Key Installeren"
+    run_add_node_setup "$mac_ip" "$mac_user"
 
     echo ""
-    gum style --foreground 212 --border normal --padding "1 2" \
-        "📋 Manual Next Steps"
-
-    echo ""
-    gum style --foreground 226 "On your Synology/Server, you need to:"
-    echo ""
-    gum style --foreground 252 "1. Install Jellyfin with the rffmpeg Docker mod"
-    gum style --foreground 252 "2. Generate an SSH key and copy it to this Mac"
-    gum style --foreground 252 "3. Create rffmpeg.yml config pointing to this Mac"
-    gum style --foreground 252 "4. Add this Mac as a transcode node"
-
-    echo ""
-    gum style --foreground 226 "This Mac's details:"
-    gum style --foreground 39 "  IP Address: ${mac_ip}"
-    gum style --foreground 39 "  Username:   ${mac_user}"
-
-    echo ""
-    gum style --foreground 226 "Command to add this Mac to rffmpeg (run on server):"
-    echo ""
-    gum style --foreground 39 --border normal --padding "0 1" \
-        "docker exec jellyfin rffmpeg add ${mac_ip} --weight 2"
-
-    echo ""
-    gum style --foreground 252 "For detailed instructions, run the Jellyfin Setup option"
-    gum style --foreground 252 "or read the documentation."
-
-    echo ""
-    return_or_exit
+    show_result true "Node configuratie voltooid!"
 }
 
-# Jellyfin/Docker Setup
-setup_jellyfin() {
-    gum style \
-        --foreground 39 \
-        --border-foreground 39 \
-        --border normal \
-        --padding "0 1" \
-        "🐳 Jellyfin + rffmpeg Setup"
+wizard_add_node_mac() {
+    show_step 1 2 "Mac als Node Toevoegen"
 
-    gum style --foreground 252 "This will configure:"
-    echo ""
-    gum style --foreground 39 "  • Docker compose for Jellyfin with rffmpeg"
-    gum style --foreground 39 "  • SSH key generation for transcode node access"
-    gum style --foreground 39 "  • rffmpeg.yml configuration"
-    gum style --foreground 39 "  • NFS volume for transcode cache"
+    show_info "Deze Mac wordt toegevoegd als transcode node."
     echo ""
 
-    if ! gum confirm "Continue with Jellyfin setup?"; then
-        main_menu
-        return
+    # Check for existing SSH key
+    if check_transcodarr_ssh_key; then
+        show_skip "SSH key is al geconfigureerd"
+    else
+        show_warning "Geen SSH key gevonden."
+        show_info "Voer de installer uit op je Synology om de SSH key te installeren."
+        return 1
     fi
 
-    # Get configuration
+    # Get NAS info
+    local nas_ip
+    nas_ip=$(get_config "nas_ip")
+    if [[ -z "$nas_ip" ]]; then
+        nas_ip=$(ask_input "NAS/Synology IP adres" "192.168.1.100")
+    fi
+
+    show_step 2 2 "Mac Configureren"
+
+    # Run abbreviated setup (skip already done steps)
+    local media_path
+    local cache_path
+
+    media_path=$(get_config "media_path")
+    [[ -z "$media_path" ]] && media_path=$(ask_input "Media folder op NAS" "/volume1/data/media")
+
+    cache_path=$(get_config "cache_path")
+    [[ -z "$cache_path" ]] && cache_path=$(ask_input "Cache folder op NAS" "/volume1/docker/jellyfin/cache")
+
+    # Only run what's needed
+    if ! check_synthetic_links; then
+        setup_synthetic_links
+        if [[ $? -eq 2 ]]; then
+            show_reboot_instructions "$(pwd)"
+            return 0
+        fi
+    fi
+
+    if ! check_mount_scripts; then
+        create_media_mount_script "$nas_ip" "$media_path"
+        create_cache_mount_script "$nas_ip" "$cache_path"
+        create_launch_daemons
+    fi
+
+    if ! check_energy_settings; then
+        configure_energy_settings
+    fi
+
     echo ""
-    gum style --foreground 212 "📝 Configuration"
-    gum style --foreground 252 "I'll ask for 6 things, then generate all config files for you."
+    local mac_ip
+    mac_ip=$(ipconfig getifaddr en0 2>/dev/null || echo "<MAC_IP>")
+    show_info "Mac geconfigureerd! Voeg deze Mac toe op je Synology:"
     echo ""
+    echo -e "  ${GREEN}docker exec jellyfin rffmpeg add $mac_ip --weight 2${NC}"
+    echo ""
+}
 
-    gum style --foreground 226 "1/6 - Mac IP address"
-    gum style --foreground 252 "This is the Apple Silicon Mac that will do the transcoding."
-    gum style --foreground 252 "To find the IP: System Settings → Network → look for your IP address"
-    MAC_IP=$(gum input --placeholder "192.168.1.50" --prompt "Mac IP address: ")
+# ============================================================================
+# MAIN ENTRY POINT
+# ============================================================================
 
-    echo ""
-    gum style --foreground 226 "2/6 - Mac username"
-    gum style --foreground 252 "To find your username, run 'whoami' in Terminal on your Mac."
-    MAC_USER=$(gum input --placeholder "nick" --prompt "Mac username: ")
+main() {
+    # Ensure gum is available
+    check_and_install_gum
 
-    echo ""
-    gum style --foreground 226 "3/6 - Synology IP address"
-    gum style --foreground 252 "This is where your Jellyfin Docker container runs."
-    gum style --foreground 252 "To find the IP: Synology DSM → Control Panel → Network"
-    NAS_IP=$(gum input --placeholder "192.168.1.100" --prompt "NAS IP address: ")
+    # Show banner
+    show_banner "$VERSION"
 
-    echo ""
-    gum style --foreground 226 "4/6 - Synology username"
-    gum style --foreground 252 "What is your SSH username for the Synology?"
-    gum style --foreground 245 "(This is the account you use to log into DSM or SSH)"
-    NAS_USER=$(gum input --placeholder "admin" --prompt "Synology username: ")
-
-    echo ""
-    gum style --foreground 226 "5/6 - Cache folder path"
-    gum style --foreground 212 "📂 What is the transcode cache?"
-    gum style --foreground 252 "When the Mac transcodes, it writes output to a 'cache' folder."
-    gum style --foreground 252 "Jellyfin reads from this folder to stream to you."
-    gum style --foreground 252 "Both need access to the SAME folder."
-    echo ""
-    gum style --foreground 252 "Where is (or will be) your Jellyfin cache folder on the NAS?"
-    gum style --foreground 245 "(Usually inside your Jellyfin config folder)"
-    CACHE_PATH=$(gum input --placeholder "/volume1/docker/jellyfin/cache" --prompt "Cache path: " --value "/volume1/docker/jellyfin/cache")
+    # Detect system
+    local system_type
+    system_type=$(get_system_type)
+    local system_name
+    system_name=$(get_system_name)
 
     echo ""
-    gum style --foreground 226 "6/6 - Jellyfin config path"
-    gum style --foreground 252 "Where is your Jellyfin config folder on the Synology?"
-    gum style --foreground 245 "(This is where Jellyfin stores its database, settings, etc.)"
-    JELLYFIN_CONFIG=$(gum input --placeholder "/volume1/docker/jellyfin" --prompt "Jellyfin config path: " --value "/volume1/docker/jellyfin")
+    show_info "Gedetecteerd systeem: $system_name"
 
-    # Confirmation loop - let user review and change values
-    while true; do
-        echo ""
-        gum style --foreground 212 --border normal --padding "1 2" \
-            "📋 Please confirm your settings:"
-        echo ""
-        gum style --foreground 252 "1. Mac IP:           ${MAC_IP}"
-        gum style --foreground 252 "2. Mac username:     ${MAC_USER}"
-        gum style --foreground 252 "3. Synology IP:      ${NAS_IP}"
-        gum style --foreground 252 "4. Synology user:    ${NAS_USER}"
-        gum style --foreground 252 "5. Cache path:       ${CACHE_PATH}"
-        gum style --foreground 252 "6. Jellyfin config:  ${JELLYFIN_CONFIG}"
-        echo ""
+    # Detect install status
+    local install_status
+    install_status=$(get_install_status)
 
-        local confirm_choice
-        confirm_choice=$(gum choose \
-            --header "Is this correct?" \
-            --cursor.foreground 212 \
-            "✅ Yes, generate the files" \
-            "✏️  Change a value" \
-            "❌ Cancel and return to menu")
+    case "$install_status" in
+        "first_time")
+            show_info "Dit lijkt een eerste installatie te zijn."
+            ;;
+        "adding_node")
+            show_info "FFmpeg is geïnstalleerd, SSH key ontbreekt nog."
+            ;;
+        "partial")
+            show_info "Gedeeltelijke installatie gedetecteerd."
+            ;;
+        "fully_configured")
+            show_info "Systeem lijkt volledig geconfigureerd."
+            ;;
+        "configured")
+            show_info "rffmpeg is al geconfigureerd."
+            ;;
+    esac
 
-        case "$confirm_choice" in
-            "✅ Yes, generate the files")
-                break
+    echo ""
+
+    # Route to appropriate wizard
+    if is_synology; then
+        case "$install_status" in
+            "first_time")
+                if ask_confirm "Eerste keer setup starten?"; then
+                    wizard_synology
+                fi
                 ;;
-            "✏️  Change a value")
-                local change_choice
-                change_choice=$(gum choose \
-                    --header "Which value do you want to change?" \
-                    --cursor.foreground 212 \
-                    "1. Mac IP (${MAC_IP})" \
-                    "2. Mac username (${MAC_USER})" \
-                    "3. Synology IP (${NAS_IP})" \
-                    "4. Synology username (${NAS_USER})" \
-                    "5. Cache path (${CACHE_PATH})" \
-                    "6. Jellyfin config path (${JELLYFIN_CONFIG})" \
-                    "⬅️  Back")
-
-                case "$change_choice" in
-                    "1."*) MAC_IP=$(gum input --placeholder "$MAC_IP" --prompt "Mac IP: " --value "$MAC_IP") ;;
-                    "2."*) MAC_USER=$(gum input --placeholder "$MAC_USER" --prompt "Mac username: " --value "$MAC_USER") ;;
-                    "3."*) NAS_IP=$(gum input --placeholder "$NAS_IP" --prompt "Synology IP: " --value "$NAS_IP") ;;
-                    "4."*) NAS_USER=$(gum input --placeholder "$NAS_USER" --prompt "Synology username: " --value "$NAS_USER") ;;
-                    "5."*) CACHE_PATH=$(gum input --placeholder "$CACHE_PATH" --prompt "Cache path: " --value "$CACHE_PATH") ;;
-                    "6."*) JELLYFIN_CONFIG=$(gum input --placeholder "$JELLYFIN_CONFIG" --prompt "Jellyfin config: " --value "$JELLYFIN_CONFIG") ;;
-                esac
-                ;;
-            "❌ Cancel and return to menu")
-                main_menu
-                return
+            "configured")
+                if ask_confirm "Een nieuwe Mac node toevoegen?"; then
+                    wizard_add_node_synology
+                else
+                    show_info "Gebruik de volgende commando's om nodes te beheren:"
+                    echo ""
+                    echo "  docker exec jellyfin rffmpeg status"
+                    echo "  docker exec jellyfin rffmpeg add <IP> --weight 2"
+                    echo "  docker exec jellyfin rffmpeg remove <IP>"
+                fi
                 ;;
         esac
-    done
-
-    echo ""
-    gum style --foreground 226 "Generating files..."
-    echo ""
-
-    source "$SCRIPT_DIR/lib/jellyfin-setup.sh"
-
-    run_jellyfin_setup "$MAC_IP" "$MAC_USER" "$NAS_IP" "$NAS_USER" "$CACHE_PATH" "$JELLYFIN_CONFIG"
-
-    echo ""
-    gum style --foreground 46 "✅ Jellyfin setup complete!"
-    echo ""
-    return_or_exit
-}
-
-# Setup monitoring
-setup_monitoring() {
-    gum style \
-        --foreground 39 \
-        --border-foreground 39 \
-        --border double \
-        --padding "1 2" \
-        "📊 Monitoring Setup"
-
-    echo ""
-    gum style --foreground 212 "What is monitoring?"
-    gum style --foreground 252 "Monitoring lets you see how your Macs are performing:"
-    gum style --foreground 39 "  • CPU usage (how hard is the Mac working?)"
-    gum style --foreground 39 "  • Memory usage (is there enough RAM?)"
-    gum style --foreground 39 "  • Is the Mac online and available?"
-    echo ""
-
-    gum style --foreground 212 "How does it work?"
-    gum style --foreground 252 "1. Each Mac runs 'node_exporter' (collects stats)"
-    gum style --foreground 252 "2. Prometheus (on your server) fetches these stats"
-    gum style --foreground 252 "3. Grafana (on your server) shows nice graphs"
-    echo ""
-
-    gum style --foreground 226 "⚠️  This is OPTIONAL - Transcodarr works fine without it!"
-    echo ""
-
-    local choice
-    choice=$(gum choose \
-        --header "What do you want to do?" \
-        --cursor.foreground 212 \
-        "📖 I don't have Prometheus/Grafana yet - show me how to set it up" \
-        "✅ I already have Prometheus/Grafana - just configure it" \
-        "⬅️  Back to main menu (skip monitoring)" \
-        "❌ Exit installer")
-
-    case "$choice" in
-        "📖 I don't have Prometheus/Grafana yet - show me how to set it up")
-            show_monitoring_full_setup
-            ;;
-        "✅ I already have Prometheus/Grafana - just configure it")
-            show_monitoring_existing_setup
-            ;;
-        "⬅️  Back to main menu (skip monitoring)")
-            main_menu
-            ;;
-        "❌ Exit installer")
-            exit 0
-            ;;
-    esac
-}
-
-# Full monitoring setup for beginners
-show_monitoring_full_setup() {
-    gum style --foreground 212 --border double --padding "1 2" \
-        "📖 Complete Monitoring Setup Guide"
-
-    echo ""
-    gum style --foreground 252 "This guide will help you set up monitoring from scratch."
-    gum style --foreground 252 "You'll need to do 3 things:"
-    echo ""
-    gum style --foreground 39 "  STEP 1: Install node_exporter on each Mac"
-    gum style --foreground 39 "  STEP 2: Install Prometheus + Grafana on your server"
-    gum style --foreground 39 "  STEP 3: Import the dashboard in Grafana"
-    echo ""
-
-    if ! gum confirm "Ready to start?"; then
-        setup_monitoring
-        return
-    fi
-
-    # STEP 1
-    echo ""
-    gum style --foreground 212 --border normal --padding "0 1" "STEP 1: Install node_exporter on this Mac"
-    echo ""
-    gum style --foreground 252 "node_exporter is a small program that collects stats from your Mac"
-    gum style --foreground 252 "(CPU, memory, disk, network) and makes them available for Prometheus."
-    echo ""
-
-    # Check if already installed
-    if command -v node_exporter &> /dev/null || brew list node_exporter &> /dev/null 2>&1; then
-        gum style --foreground 46 "✅ node_exporter is already installed on this Mac!"
-
-        if pgrep -x "node_exporter" > /dev/null; then
-            gum style --foreground 46 "✅ It's running!"
-        else
-            gum style --foreground 226 "⚠️  It's installed but not running. Starting it..."
-            brew services start node_exporter
-            gum style --foreground 46 "✅ Started!"
-        fi
+    elif is_mac; then
+        case "$install_status" in
+            "first_time")
+                if ask_confirm "Mac setup starten?"; then
+                    wizard_mac
+                fi
+                ;;
+            "adding_node")
+                if ask_confirm "Deze Mac als node toevoegen?"; then
+                    wizard_add_node_mac
+                fi
+                ;;
+            "partial")
+                show_info "Partiële installatie gedetecteerd."
+                if is_reboot_pending; then
+                    if ask_confirm "Verdergaan na herstart?"; then
+                        wizard_mac
+                    fi
+                else
+                    if ask_confirm "Setup voltooien?"; then
+                        wizard_mac
+                    fi
+                fi
+                ;;
+            "fully_configured")
+                show_info "Deze Mac is al volledig geconfigureerd."
+                local mac_ip
+                mac_ip=$(ipconfig getifaddr en0 2>/dev/null || echo "<MAC_IP>")
+                echo ""
+                echo "  Voeg deze Mac toe aan rffmpeg:"
+                echo -e "  ${GREEN}docker exec jellyfin rffmpeg add $mac_ip --weight 2${NC}"
+                echo ""
+                echo "  Of voer de uninstaller uit:"
+                echo -e "  ${GREEN}./uninstall.sh${NC}"
+                ;;
+        esac
     else
-        if gum confirm "Install node_exporter on this Mac now?"; then
-            gum style --foreground 212 "Installing..."
-            brew install node_exporter
-            brew services start node_exporter
-            gum style --foreground 46 "✅ Installed and started!"
-        else
-            gum style --foreground 226 "Skipped. You can install it later with: brew install node_exporter"
-        fi
-    fi
-
-    local mac_ip=$(ipconfig getifaddr en0 2>/dev/null || echo "YOUR_MAC_IP")
-    echo ""
-    gum style --foreground 252 "This Mac's stats are now available at:"
-    gum style --foreground 39 "  http://${mac_ip}:9100/metrics"
-    echo ""
-
-    gum style --foreground 226 "👉 Repeat this step on every Mac you want to monitor!"
-    echo ""
-
-    if ! gum confirm "Continue to Step 2?"; then
-        setup_monitoring
-        return
-    fi
-
-    # STEP 2
-    echo ""
-    gum style --foreground 212 --border normal --padding "0 1" "STEP 2: Install Prometheus + Grafana on your server"
-    echo ""
-    gum style --foreground 252 "You need to run Prometheus and Grafana on your Synology/server."
-    gum style --foreground 252 "The easiest way is with Docker Compose."
-    echo ""
-
-    gum style --foreground 226 "Create this file on your server:"
-    gum style --foreground 245 "  /volume1/docker/monitoring/docker-compose.yml"
-    echo ""
-
-    gum style --foreground 39 --border normal --padding "1 1" "version: '3'
-services:
-  prometheus:
-    image: prom/prometheus
-    container_name: prometheus
-    ports:
-      - 9090:9090
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
-    restart: unless-stopped
-
-  grafana:
-    image: grafana/grafana
-    container_name: grafana
-    ports:
-      - 3000:3000
-    volumes:
-      - grafana_data:/var/lib/grafana
-    restart: unless-stopped
-
-volumes:
-  prometheus_data:
-  grafana_data:"
-
-    echo ""
-    gum style --foreground 226 "Create this file next to it:"
-    gum style --foreground 245 "  /volume1/docker/monitoring/prometheus.yml"
-    echo ""
-
-    gum style --foreground 39 --border normal --padding "1 1" "global:
-  scrape_interval: 15s
-
-scrape_configs:
-  - job_name: 'transcode-nodes'
-    static_configs:
-      # Add ALL your Macs here!
-      - targets: ['${mac_ip}:9100']
-        labels:
-          node: 'mac-mini'
-      # Example: add a second Mac
-      # - targets: ['192.168.1.51:9100']
-      #   labels:
-      #     node: 'mac-studio'"
-
-    echo ""
-    gum style --foreground 226 "⚠️  IMPORTANT: Add ALL your Macs to prometheus.yml!"
-    gum style --foreground 252 "Each Mac needs its own entry with IP:9100"
-
-    echo ""
-    gum style --foreground 226 "Then start it:"
-    gum style --foreground 39 --border normal --padding "0 1" "cd /volume1/docker/monitoring && sudo docker compose up -d"
-    echo ""
-
-    if ! gum confirm "Continue to Step 3?"; then
-        setup_monitoring
-        return
-    fi
-
-    # STEP 3
-    echo ""
-    gum style --foreground 212 --border normal --padding "0 1" "STEP 3: Import the Dashboard in Grafana"
-    echo ""
-    gum style --foreground 252 "Now let's add a nice dashboard to see your stats!"
-    echo ""
-
-    gum style --foreground 226 "3.1 Open Grafana in your browser:"
-    gum style --foreground 39 "    http://YOUR_SERVER_IP:3000"
-    gum style --foreground 245 "    Default login: admin / admin"
-    echo ""
-
-    gum style --foreground 226 "3.2 Add Prometheus as a data source:"
-    gum style --foreground 252 "    1. Click the gear icon (⚙️) → 'Data sources'"
-    gum style --foreground 252 "    2. Click 'Add data source'"
-    gum style --foreground 252 "    3. Select 'Prometheus'"
-    gum style --foreground 252 "    4. Set URL to: http://prometheus:9090"
-    gum style --foreground 252 "    5. Click 'Save & test'"
-    echo ""
-
-    gum style --foreground 226 "3.3 Import the Transcodarr dashboard:"
-    gum style --foreground 252 "    1. Click '+' → 'Import'"
-    gum style --foreground 252 "    2. Click 'Upload JSON file'"
-    gum style --foreground 252 "    3. Select this file:"
-    echo ""
-    gum style --foreground 39 --border normal --padding "0 1" "$SCRIPT_DIR/grafana-dashboard.json"
-    echo ""
-    gum style --foreground 252 "    4. Select 'Prometheus' as the data source"
-    gum style --foreground 252 "    5. Click 'Import'"
-    echo ""
-
-    gum style --foreground 46 --border double --padding "1 2" "🎉 Done! You should now see your Mac's stats in Grafana!"
-
-    # Offer to open the file location
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        echo ""
-        if gum confirm "Open the folder with the dashboard file?"; then
-            open "$(dirname "$SCRIPT_DIR/grafana-dashboard.json")"
-        fi
+        show_error "Onbekend systeem. Deze installer werkt alleen op Synology en macOS."
+        exit 1
     fi
 
     echo ""
-    return_or_exit
-}
-
-# Quick setup for users who already have Prometheus/Grafana
-show_monitoring_existing_setup() {
-    gum style --foreground 212 --border normal --padding "0 1" \
-        "✅ Quick Setup for Existing Prometheus/Grafana"
-
-    local mac_ip=$(ipconfig getifaddr en0 2>/dev/null || echo "YOUR_MAC_IP")
-
-    echo ""
-    gum style --foreground 226 "1. Install node_exporter on this Mac:"
-    echo ""
-
-    if command -v node_exporter &> /dev/null || brew list node_exporter &> /dev/null 2>&1; then
-        if pgrep -x "node_exporter" > /dev/null; then
-            gum style --foreground 46 "   ✅ Already installed and running!"
-        else
-            gum style --foreground 226 "   ⚠️  Installed but not running"
-            gum style --foreground 39 --border normal --padding "0 1" "brew services start node_exporter"
-        fi
-    else
-        gum style --foreground 39 --border normal --padding "0 1" "brew install node_exporter && brew services start node_exporter"
-    fi
-
-    echo ""
-    gum style --foreground 226 "2. Add this Mac to your prometheus.yml (under scrape_configs → transcode-nodes):"
-    echo ""
-    gum style --foreground 39 --border normal --padding "0 1" "      - targets: ['${mac_ip}:9100']
-        labels:
-          node: 'this-mac'"
-
-    echo ""
-    gum style --foreground 245 "💡 You can add multiple Macs! Each Mac needs its own entry."
-    gum style --foreground 245 "   Example with 2 Macs:"
-    echo ""
-    gum style --foreground 39 --border normal --padding "0 1" "scrape_configs:
-  - job_name: 'transcode-nodes'
-    static_configs:
-      - targets: ['192.168.1.50:9100']
-        labels:
-          node: 'mac-mini'
-      - targets: ['192.168.1.51:9100']
-        labels:
-          node: 'mac-studio'"
-
-    echo ""
-    gum style --foreground 226 "3. Restart Prometheus:"
-    gum style --foreground 39 --border normal --padding "0 1" "sudo docker restart prometheus"
-
-    echo ""
-    gum style --foreground 226 "4. Import dashboard in Grafana:"
-    gum style --foreground 39 --border normal --padding "0 1" "$SCRIPT_DIR/grafana-dashboard.json"
-
-    # Offer to open the file location
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        echo ""
-        if gum confirm "Open the folder with the dashboard file?"; then
-            open "$(dirname "$SCRIPT_DIR/grafana-dashboard.json")"
-        fi
-    fi
-
-    echo ""
-    return_or_exit
-}
-
-# View documentation
-view_docs() {
-    local choice
-    choice=$(gum choose \
-        --header "Which documentation?" \
-        --cursor.foreground 212 \
-        "📋 Prerequisites (Read First!)" \
-        "📖 Full Setup Guide" \
-        "🖥️  Apple Silicon Mac Quick Start" \
-        "🐳 Jellyfin Quick Start" \
-        "⬅️  Back to main menu" \
-        "❌ Exit installer")
-
-    case "$choice" in
-        "📋 Prerequisites (Read First!)")
-            gum pager < "$SCRIPT_DIR/docs/PREREQUISITES.md"
-            view_docs
-            ;;
-        "📖 Full Setup Guide")
-            gum pager < "$SCRIPT_DIR/LIVE_TRANSCODING_GUIDE.md"
-            view_docs
-            ;;
-        "🖥️  Apple Silicon Mac Quick Start")
-            if [[ -f "$SCRIPT_DIR/docs/MAC_SETUP.md" ]]; then
-                gum pager < "$SCRIPT_DIR/docs/MAC_SETUP.md"
-            else
-                gum style --foreground 196 "Documentation not found"
-            fi
-            view_docs
-            ;;
-        "🐳 Jellyfin Quick Start")
-            if [[ -f "$SCRIPT_DIR/docs/JELLYFIN_SETUP.md" ]]; then
-                gum pager < "$SCRIPT_DIR/docs/JELLYFIN_SETUP.md"
-            else
-                gum style --foreground 196 "Documentation not found"
-            fi
-            view_docs
-            ;;
-        "⬅️  Back to main menu")
-            main_menu
-            ;;
-        "❌ Exit installer")
-            exit 0
-            ;;
-    esac
-}
-
-# Main entry point
-main() {
-    check_gum
-    clear
-    show_banner
-    show_backup_warning
-
-    # Show detected system
-    local system=$(detect_system)
-    case "$system" in
-        "mac_apple_silicon")
-            gum style --foreground 46 "✓ Detected: Mac with Apple Silicon"
-            ;;
-        "mac_intel")
-            gum style --foreground 226 "⚠ Detected: Mac with Intel (no hardware acceleration)"
-            ;;
-        "synology")
-            gum style --foreground 46 "✓ Detected: Synology NAS"
-            ;;
-        "linux")
-            gum style --foreground 39 "ℹ Detected: Linux system"
-            ;;
-        *)
-            gum style --foreground 196 "⚠ Unknown system type"
-            ;;
-    esac
-    echo ""
-
-    main_menu
 }
 
 # Run main
