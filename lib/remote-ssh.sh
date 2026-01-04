@@ -76,9 +76,18 @@ install_ssh_key_interactive() {
     show_ssh_password_prompt "$mac_user" "$mac_ip"
     echo ""
 
-    ssh -o StrictHostKeyChecking=accept-new \
+    if ssh -o StrictHostKeyChecking=accept-new \
         "${mac_user}@${mac_ip}" \
-        "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$pubkey' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo 'SSH key installed successfully'"
+        "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$pubkey' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo 'SSH key installed successfully'"; then
+        echo ""
+        show_result true "SSH key installed on Mac"
+        return 0
+    else
+        echo ""
+        show_error "SSH key installation failed"
+        show_info "Check that the password was correct"
+        return 1
+    fi
 }
 
 # ============================================================================
