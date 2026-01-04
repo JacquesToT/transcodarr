@@ -382,8 +382,10 @@ remote_setup_synthetic_links() {
     ssh_exec_sudo "$mac_user" "$mac_ip" "$key_path" \
         "mkdir -p /System/Volumes/Data/data/media /System/Volumes/Data/config/cache"
 
-    ssh_exec "$mac_user" "$mac_ip" "$key_path" \
-        "printf 'data\tSystem/Volumes/Data/data\nconfig\tSystem/Volumes/Data/config\n' | sudo tee /etc/synthetic.conf > /dev/null"
+    # Create synthetic.conf - need sudo for /etc
+    # Use sh -c to ensure the redirect happens with sudo privileges
+    ssh_exec_sudo "$mac_user" "$mac_ip" "$key_path" \
+        "sh -c 'printf \"data\tSystem/Volumes/Data/data\nconfig\tSystem/Volumes/Data/config\n\" > /etc/synthetic.conf'"
 
     show_result true "Synthetic links configured (reboot required)"
     return 2
