@@ -19,7 +19,7 @@ NC='\033[0m'
 # ============================================================================
 
 # Show step header with progress
-# Usage: show_step 1 5 "NFS Configureren"
+# Usage: show_step 1 5 "Configure NFS"
 show_step() {
     local current="$1"
     local total="$2"
@@ -33,17 +33,17 @@ show_step() {
             --border double \
             --padding "0 2" \
             --width 60 \
-            "Stap $current van $total: $title"
+            "Step $current of $total: $title"
     else
         echo -e "${MAGENTA}════════════════════════════════════════════════════════════${NC}"
-        echo -e "${MAGENTA}  Stap $current van $total: $title${NC}"
+        echo -e "${MAGENTA}  Step $current of $total: $title${NC}"
         echo -e "${MAGENTA}════════════════════════════════════════════════════════════${NC}"
     fi
     echo ""
 }
 
 # Show what just happened (success/failure)
-# Usage: show_result true "Homebrew geïnstalleerd"
+# Usage: show_result true "Homebrew installed"
 show_result() {
     local success="$1"
     local message="$2"
@@ -64,7 +64,7 @@ show_result() {
 }
 
 # Show skip message (when step is already done)
-# Usage: show_skip "Homebrew is al geïnstalleerd"
+# Usage: show_skip "Homebrew is already installed"
 show_skip() {
     local message="$1"
 
@@ -76,7 +76,7 @@ show_skip() {
 }
 
 # Show info message
-# Usage: show_info "Even geduld..."
+# Usage: show_info "Please wait..."
 show_info() {
     local message="$1"
 
@@ -88,7 +88,7 @@ show_info() {
 }
 
 # Show warning message
-# Usage: show_warning "Dit kan even duren"
+# Usage: show_warning "This may take a while"
 show_warning() {
     local message="$1"
 
@@ -100,7 +100,7 @@ show_warning() {
 }
 
 # Show error message
-# Usage: show_error "Kon niet verbinden"
+# Usage: show_error "Could not connect"
 show_error() {
     local message="$1"
 
@@ -116,7 +116,7 @@ show_error() {
 # ============================================================================
 
 # Show explanation box
-# Usage: show_explanation "Wat is NFS?" "NFS is een protocol..." "Het werkt zoals..."
+# Usage: show_explanation "What is NFS?" "NFS is a protocol..." "It works like..."
 show_explanation() {
     local title="$1"
     shift
@@ -138,15 +138,15 @@ show_explanation() {
 }
 
 # Show what this step does
-# Usage: show_what_this_does "Dit installeert FFmpeg met hardware acceleratie..."
+# Usage: show_what_this_does "This installs FFmpeg with hardware acceleration..."
 show_what_this_does() {
     local explanation="$1"
 
     echo ""
     if command -v gum &> /dev/null; then
-        gum style --foreground 245 --italic "  Wat dit doet: $explanation"
+        gum style --foreground 245 --italic "  What this does: $explanation"
     else
-        echo -e "  ${CYAN}Wat dit doet:${NC} $explanation"
+        echo -e "  ${CYAN}What this does:${NC} $explanation"
     fi
     echo ""
 }
@@ -156,23 +156,23 @@ show_what_this_does() {
 # ============================================================================
 
 # Wait for user to confirm they've completed a manual step
-# Usage: wait_for_user "Heb je NFS ingeschakeld in DSM?"
+# Usage: wait_for_user "Have you enabled NFS in DSM?"
 wait_for_user() {
     local message="$1"
 
     echo ""
     if command -v gum &> /dev/null; then
         gum style --foreground 39 "$message"
-        gum confirm "Ja, dit is gedaan" && return 0 || return 1
+        gum confirm "Yes, this is done" && return 0 || return 1
     else
         echo -e "${BLUE}$message${NC}"
-        read -p "Druk Enter om door te gaan (of Ctrl+C om te stoppen)..."
+        read -p "Press Enter to continue (or Ctrl+C to stop)..."
         return 0
     fi
 }
 
 # Ask a yes/no question
-# Usage: ask_confirm "Wil je doorgaan?"
+# Usage: ask_confirm "Do you want to continue?"
 ask_confirm() {
     local question="$1"
 
@@ -186,7 +186,7 @@ ask_confirm() {
 }
 
 # Ask for text input
-# Usage: ip=$(ask_input "Mac IP adres" "192.168.1.50")
+# Usage: ip=$(ask_input "Mac IP address" "192.168.1.50")
 ask_input() {
     local prompt="$1"
     local default="$2"
@@ -213,24 +213,24 @@ show_nfs_instructions() {
             --border normal \
             --padding "1 2" \
             --width 65 \
-            "SYNOLOGY: NFS Inschakelen"
+            "SYNOLOGY: Enable NFS"
     else
         echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${MAGENTA}║  SYNOLOGY: NFS Inschakelen                                    ║${NC}"
+        echo -e "${MAGENTA}║  SYNOLOGY: Enable NFS                                         ║${NC}"
         echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════╝${NC}"
     fi
     echo ""
 
-    echo "  In Synology DSM, doe deze stappen:"
+    echo "  In Synology DSM, follow these steps:"
     echo ""
     echo -e "  ${CYAN}1. Control Panel > File Services > NFS tab${NC}"
-    echo "     - Vink 'Enable NFS service' aan"
-    echo "     - Klik Apply"
+    echo "     - Check 'Enable NFS service'"
+    echo "     - Click Apply"
     echo ""
     echo -e "  ${CYAN}2. Control Panel > Shared Folder${NC}"
-    echo "     - Selecteer je media folder (bijv. 'data')"
-    echo "     - Klik Edit > NFS Permissions"
-    echo "     - Klik Create en stel in:"
+    echo "     - Select your media folder (e.g. 'data')"
+    echo "     - Click Edit > NFS Permissions"
+    echo "     - Click Create and configure:"
     echo ""
     echo -e "       ${GREEN}Hostname:${NC}      *"
     echo -e "       ${GREEN}Privilege:${NC}     Read/Write"
@@ -238,8 +238,8 @@ show_nfs_instructions() {
     echo -e "       ${GREEN}[x]${NC}            Allow connections from non-privileged ports"
     echo -e "       ${GREEN}[x]${NC}            Allow users to access mounted subfolders"
     echo ""
-    echo -e "  ${CYAN}3. Herhaal stap 2 voor je cache folder${NC}"
-    echo "     (bijv. 'docker' of waar je Jellyfin cache staat)"
+    echo -e "  ${CYAN}3. Repeat step 2 for your cache folder${NC}"
+    echo "     (e.g. 'docker' or wherever your Jellyfin cache is)"
     echo ""
 }
 
@@ -258,48 +258,48 @@ show_docker_mods_instructions() {
             --border double \
             --padding "1 2" \
             --width 65 \
-            "BELANGRIJK: rffmpeg Mod Activeren"
+            "IMPORTANT: Activate rffmpeg Mod"
     else
         echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${MAGENTA}║  BELANGRIJK: rffmpeg Mod Activeren                           ║${NC}"
+        echo -e "${MAGENTA}║  IMPORTANT: Activate rffmpeg Mod                             ║${NC}"
         echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════╝${NC}"
     fi
     echo ""
 
-    echo "  Voeg deze 2 environment variables toe aan Jellyfin:"
+    echo "  Add these 2 environment variables to Jellyfin:"
     echo ""
     echo -e "  ${GREEN}DOCKER_MODS=linuxserver/mods:jellyfin-rffmpeg${NC}"
     echo -e "  ${GREEN}FFMPEG_PATH=/usr/local/bin/ffmpeg${NC}"
     echo ""
     echo "  ─────────────────────────────────────────────────────────"
     echo ""
-    echo -e "  ${CYAN}Methode A: docker-compose.yml bewerken${NC}"
+    echo -e "  ${CYAN}Method A: Edit docker-compose.yml${NC}"
     echo ""
-    echo "    1. Open je docker-compose.yml"
-    echo "    2. Voeg onder 'environment:' toe:"
+    echo "    1. Open your docker-compose.yml"
+    echo "    2. Add under 'environment:':"
     echo ""
     echo -e "       ${GREEN}environment:${NC}"
     echo -e "         ${GREEN}- DOCKER_MODS=linuxserver/mods:jellyfin-rffmpeg${NC}"
     echo -e "         ${GREEN}- FFMPEG_PATH=/usr/local/bin/ffmpeg${NC}"
     echo ""
-    echo "    3. Herstart de container:"
+    echo "    3. Restart the container:"
     echo -e "       ${YELLOW}docker compose down && docker compose up -d${NC}"
     echo ""
     echo "  ─────────────────────────────────────────────────────────"
     echo ""
-    echo -e "  ${CYAN}Methode B: Container Manager UI${NC}"
+    echo -e "  ${CYAN}Method B: Container Manager UI${NC}"
     echo ""
     echo "    1. Open Container Manager in DSM"
-    echo "    2. Selecteer 'jellyfin' container"
-    echo "    3. Klik 'Action' > 'Stop'"
-    echo "    4. Klik 'Action' > 'Edit'"
-    echo "    5. Ga naar 'Environment' tab"
-    echo "    6. Voeg beide variables toe"
-    echo "    7. Klik 'Save' en start de container"
+    echo "    2. Select 'jellyfin' container"
+    echo "    3. Click 'Action' > 'Stop'"
+    echo "    4. Click 'Action' > 'Edit'"
+    echo "    5. Go to 'Environment' tab"
+    echo "    6. Add both variables"
+    echo "    7. Click 'Save' and start the container"
     echo ""
     echo "  ─────────────────────────────────────────────────────────"
     echo ""
-    echo -e "  ${YELLOW}Na herstart container (wacht ~30 seconden):${NC}"
+    echo -e "  ${YELLOW}After container restart (wait ~30 seconds):${NC}"
     echo ""
     echo -e "  ${GREEN}docker exec jellyfin rffmpeg add $mac_ip --weight 2${NC}"
     echo ""
@@ -321,23 +321,23 @@ show_ssh_key_instructions() {
             --border normal \
             --padding "1 2" \
             --width 65 \
-            "SSH Key Installeren op Mac"
+            "Install SSH Key on Mac"
     else
         echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${MAGENTA}║  SSH Key Installeren op Mac                                  ║${NC}"
+        echo -e "${MAGENTA}║  Install SSH Key on Mac                                       ║${NC}"
         echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════╝${NC}"
     fi
     echo ""
 
-    echo -e "  ${YELLOW}BELANGRIJK: Je wordt zo gevraagd om een wachtwoord.${NC}"
+    echo -e "  ${YELLOW}IMPORTANT: You will be asked for a password.${NC}"
     echo ""
-    echo -e "  ${GREEN}Dit is je MAC wachtwoord${NC} (waarmee je inlogt op je Mac)"
-    echo -e "  ${RED}NIET je Synology wachtwoord!${NC}"
+    echo -e "  ${GREEN}This is your MAC password${NC} (the one you use to log into your Mac)"
+    echo -e "  ${RED}NOT your Synology password!${NC}"
     echo ""
-    echo "  Wat er gebeurt:"
-    echo "    1. We maken verbinding met je Mac ($mac_ip)"
-    echo "    2. De SSH key wordt gekopieerd naar ~/.ssh/authorized_keys"
-    echo "    3. Daarna werkt SSH zonder wachtwoord"
+    echo "  What happens:"
+    echo "    1. We connect to your Mac ($mac_ip)"
+    echo "    2. The SSH key is copied to ~/.ssh/authorized_keys"
+    echo "    3. After this, SSH works without a password"
     echo ""
 }
 
@@ -354,23 +354,23 @@ show_remote_login_instructions() {
             --border normal \
             --padding "1 2" \
             --width 65 \
-            "MAC: Remote Login Inschakelen"
+            "MAC: Enable Remote Login"
     else
         echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${MAGENTA}║  MAC: Remote Login Inschakelen                               ║${NC}"
+        echo -e "${MAGENTA}║  MAC: Enable Remote Login                                     ║${NC}"
         echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════╝${NC}"
     fi
     echo ""
 
-    echo "  Dit is nodig zodat Jellyfin FFmpeg opdrachten kan sturen."
+    echo "  This is required so Jellyfin can send FFmpeg commands."
     echo ""
-    echo -e "  ${CYAN}Op je Mac:${NC}"
+    echo -e "  ${CYAN}On your Mac:${NC}"
     echo ""
-    echo "    1. Open System Settings (Systeeminstellingen)"
-    echo "    2. Ga naar General > Sharing"
-    echo "    3. Zet 'Remote Login' AAN"
-    echo "    4. Bij 'Allow access for': kies 'All users'"
-    echo "       (of voeg je gebruiker toe)"
+    echo "    1. Open System Settings"
+    echo "    2. Go to General > Sharing"
+    echo "    3. Turn ON 'Remote Login'"
+    echo "    4. For 'Allow access for': choose 'All users'"
+    echo "       (or add your user)"
     echo ""
 }
 
@@ -389,25 +389,25 @@ show_reboot_instructions() {
             --border double \
             --padding "1 2" \
             --width 65 \
-            "HERSTART VEREIST"
+            "REBOOT REQUIRED"
     else
         echo -e "${YELLOW}╔══════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${YELLOW}║  HERSTART VEREIST                                            ║${NC}"
+        echo -e "${YELLOW}║  REBOOT REQUIRED                                             ║${NC}"
         echo -e "${YELLOW}╚══════════════════════════════════════════════════════════════╝${NC}"
     fi
     echo ""
 
-    echo "  De /data en /config mount points zijn aangemaakt."
-    echo "  Hiervoor moet je Mac opnieuw opstarten."
+    echo "  The /data and /config mount points have been created."
+    echo "  Your Mac needs to restart for these to take effect."
     echo ""
-    echo -e "  ${CYAN}Na het herstarten:${NC}"
+    echo -e "  ${CYAN}After restarting:${NC}"
     echo ""
     echo "    1. Open Terminal"
-    echo "    2. Voer uit:"
+    echo "    2. Run:"
     echo ""
     echo -e "       ${GREEN}cd $install_path && ./install.sh${NC}"
     echo ""
-    echo "    De installer gaat automatisch verder waar je gebleven was."
+    echo "    The installer will automatically continue where you left off."
     echo ""
 }
 
@@ -428,24 +428,24 @@ show_synology_summary() {
             --border double \
             --padding "1 2" \
             --width 65 \
-            "Synology Setup Voltooid!"
+            "Synology Setup Complete!"
     else
         echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${GREEN}║  Synology Setup Voltooid!                                    ║${NC}"
+        echo -e "${GREEN}║  Synology Setup Complete!                                     ║${NC}"
         echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
     fi
     echo ""
 
-    echo "  Configuratie opgeslagen:"
+    echo "  Configuration saved:"
     echo ""
     echo -e "    Mac:           ${CYAN}$mac_user@$mac_ip${NC}"
     echo -e "    Jellyfin:      ${CYAN}$jellyfin_config${NC}"
     echo ""
-    echo "  Volgende stappen:"
+    echo "  Next steps:"
     echo ""
-    echo "    1. Ga naar je Mac"
+    echo "    1. Go to your Mac"
     echo "    2. Open Terminal"
-    echo "    3. Voer uit:"
+    echo "    3. Run:"
     echo ""
     echo -e "       ${GREEN}cd ~/Transcodarr && ./install.sh${NC}"
     echo ""
@@ -462,25 +462,25 @@ show_mac_summary() {
             --border double \
             --padding "1 2" \
             --width 65 \
-            "Mac Setup Voltooid!"
+            "Mac Setup Complete!"
     else
         echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${GREEN}║  Mac Setup Voltooid!                                         ║${NC}"
+        echo -e "${GREEN}║  Mac Setup Complete!                                          ║${NC}"
         echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
     fi
     echo ""
 
-    echo "  Je Mac is klaar om te transcoden!"
+    echo "  Your Mac is ready to transcode!"
     echo ""
-    echo "  Volgende stappen (op Synology):"
+    echo "  Next steps (on Synology):"
     echo ""
-    echo "    1. Voeg DOCKER_MODS toe aan Jellyfin (zie instructies hierboven)"
-    echo "    2. Herstart Jellyfin container"
-    echo "    3. Voer uit:"
+    echo "    1. Add DOCKER_MODS to Jellyfin (see instructions above)"
+    echo "    2. Restart Jellyfin container"
+    echo "    3. Run:"
     echo ""
     echo -e "       ${GREEN}docker exec jellyfin rffmpeg status${NC}"
     echo ""
-    echo "  Je zou je Mac moeten zien in de lijst!"
+    echo "  You should see your Mac in the list!"
     echo ""
 }
 
@@ -499,15 +499,15 @@ show_banner() {
             --padding "1 2" \
             "TRANSCODARR v${version}" \
             "" \
-            "Distributed Live Transcoding voor Jellyfin" \
-            "Met Apple Silicon VideoToolbox"
+            "Distributed Live Transcoding for Jellyfin" \
+            "Using Apple Silicon VideoToolbox"
     else
         echo ""
         echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════╗${NC}"
         echo -e "${MAGENTA}║                    TRANSCODARR v${version}                        ║${NC}"
         echo -e "${MAGENTA}║                                                              ║${NC}"
-        echo -e "${MAGENTA}║        Distributed Live Transcoding voor Jellyfin           ║${NC}"
-        echo -e "${MAGENTA}║           Met Apple Silicon VideoToolbox                    ║${NC}"
+        echo -e "${MAGENTA}║        Distributed Live Transcoding for Jellyfin            ║${NC}"
+        echo -e "${MAGENTA}║           Using Apple Silicon VideoToolbox                  ║${NC}"
         echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════╝${NC}"
         echo ""
     fi

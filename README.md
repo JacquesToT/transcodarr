@@ -1,77 +1,77 @@
 # Transcodarr
 
-**Distributed Live Transcoding voor Jellyfin met Apple Silicon Macs**
+**Distributed Live Transcoding for Jellyfin using Apple Silicon Macs**
 
-Offload live video transcoding van je NAS naar Apple Silicon Macs met hardware-accelerated VideoToolbox encoding. Krijg 7-13x realtime transcoding snelheden.
+Offload live video transcoding from your NAS to Apple Silicon Macs with hardware-accelerated VideoToolbox encoding. Get 7-13x realtime transcoding speeds.
 
-## Wat Het Doet
+## What It Does
 
 ```
 ┌─────────────────┐         ┌─────────────────┐
 │    Jellyfin     │   SSH   │   Apple Mac     │
 │   (Synology)    │ ──────> │  (VideoToolbox) │
 │                 │         │                 │
-│  Vraagt om      │         │  Transcodeert   │
-│  transcode      │         │  met hardware   │
+│  Requests       │         │  Transcodes     │
+│  transcode      │         │  with hardware  │
 └────────┬────────┘         └────────┬────────┘
          │                           │
          │         NFS               │
          └───────────────────────────┘
-              Gedeelde cache folder
+              Shared cache folder
 ```
 
 ## Quick Start
 
-### Op Synology (via SSH):
+### On Synology (via SSH):
 
-**Eerst (eenmalig):**
+**First (one-time setup):**
 
 1. Open **Control Panel** → **User & Group** → **Advanced**
-2. Vink **"Enable user home service"** aan → Apply
-3. Open **Package Center** → zoek "Git" → Install
-4. Installeer Homebrew + Gum (via SSH):
+2. Check **"Enable user home service"** → Apply
+3. Open **Package Center** → search "Git" → Install
+4. Install Homebrew + Gum (via SSH):
    ```bash
    git clone https://github.com/MrCee/Synology-Homebrew.git ~/Synology-Homebrew
    ~/Synology-Homebrew/install-synology-homebrew.sh
-   # Kies optie 1 (Minimal), sluit terminal, reconnect SSH
+   # Choose option 1 (Minimal), close terminal, reconnect SSH
    brew install gum
    ```
 
-**Dan:**
+**Then:**
 ```bash
 git clone https://github.com/JacquesToT/Transcodarr.git ~/Transcodarr
 cd ~/Transcodarr && ./install.sh
 ```
 
-### Op Mac (via Terminal):
+### On Mac (via Terminal):
 ```bash
 git clone https://github.com/JacquesToT/Transcodarr.git ~/Transcodarr
 cd ~/Transcodarr && ./install.sh
 ```
 
-De installer begeleidt je stap voor stap door alle configuratie.
+The installer guides you step by step through all configuration.
 
-## Vereisten
+## Requirements
 
 ### Mac (Transcode Node)
-- macOS Sequoia 15.x of later
+- macOS Sequoia 15.x or later
 - Apple Silicon (M1/M2/M3/M4)
-- Netwerkverbinding met NAS
+- Network connection to NAS
 
 ### Server (Jellyfin Host)
-- Synology NAS met Container Manager (Docker)
+- Synology NAS with Container Manager (Docker)
 - Jellyfin in Docker container (linuxserver/jellyfin)
-- NFS ingeschakeld
+- NFS enabled
 
 ## Performance
 
-| Input | Output | Snelheid |
-|-------|--------|----------|
+| Input | Output | Speed |
+|-------|--------|-------|
 | 1080p BluRay REMUX (33 Mbps) | H.264 4 Mbps | 7.5x realtime |
 | 720p video | H.264 2 Mbps | 13.8x realtime |
 | 720p video | HEVC 1.5 Mbps | 12x realtime |
 
-## Architectuur
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -97,9 +97,9 @@ De installer begeleidt je stap voor stap door alle configuratie.
 ## Troubleshooting
 
 ### "Permission denied" SSH error
-1. Check of Remote Login aan staat op Mac (System Settings → Sharing)
-2. Controleer of de SSH key in `~/.ssh/authorized_keys` staat
-3. Check permissies: `chmod 600 ~/.ssh/authorized_keys`
+1. Check if Remote Login is enabled on Mac (System Settings → Sharing)
+2. Verify the SSH key is in `~/.ssh/authorized_keys`
+3. Check permissions: `chmod 600 ~/.ssh/authorized_keys`
 
 ### "Host marked as bad" in rffmpeg
 ```bash
@@ -107,36 +107,36 @@ docker exec jellyfin rffmpeg clear
 docker exec jellyfin rffmpeg add <MAC_IP> --weight 2
 ```
 
-### Mac niet bereikbaar
-- Check of Mac niet in slaapstand gaat
-- Controleer firewall instellingen (poort 22 voor SSH)
+### Mac not reachable
+- Check if Mac is not sleeping
+- Check firewall settings (port 22 for SSH)
 - Ping test: `ping <MAC_IP>`
 
-### NFS mount faalt
-1. Controleer of NFS service aan staat op Synology
-2. Check NFS permissions op de shared folder
-3. Test mount handmatig: `mount -t nfs <NAS_IP>:/volume1/data/media /data/media`
+### NFS mount fails
+1. Verify NFS service is enabled on Synology
+2. Check NFS permissions on the shared folder
+3. Test mount manually: `mount -t nfs <NAS_IP>:/volume1/data/media /data/media`
 
-## Commando's
+## Commands
 
-### Status bekijken
+### Check status
 ```bash
 docker exec jellyfin rffmpeg status
 ```
 
-### Node toevoegen
+### Add node
 ```bash
 docker exec jellyfin rffmpeg add <MAC_IP> --weight 2
 ```
 
-### Node verwijderen
+### Remove node
 ```bash
 docker exec jellyfin rffmpeg remove <MAC_IP>
 ```
 
 ## Uninstall
 
-Op Mac:
+On Mac:
 ```bash
 cd ~/Transcodarr && ./uninstall.sh
 ```

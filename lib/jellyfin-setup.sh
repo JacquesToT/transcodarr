@@ -22,21 +22,21 @@ generate_ssh_key() {
     mkdir -p "$ssh_dir"
 
     if [[ -f "$key_file" ]]; then
-        if ask_confirm "SSH key bestaat al. Opnieuw genereren?"; then
+        if ask_confirm "SSH key already exists. Regenerate?"; then
             rm -f "$key_file" "${key_file}.pub"
         else
-            show_skip "Bestaande SSH key wordt gebruikt"
+            show_skip "Using existing SSH key"
             return 0
         fi
     fi
 
-    show_info "SSH key pair genereren..."
+    show_info "Generating SSH key pair..."
     ssh-keygen -t ed25519 -f "$key_file" -N "" -C "transcodarr-rffmpeg"
 
     chmod 600 "$key_file"
     chmod 644 "${key_file}.pub"
 
-    show_result true "SSH key pair gegenereerd"
+    show_result true "SSH key pair generated"
     mark_step_complete "ssh_key_generated"
 }
 
@@ -86,7 +86,7 @@ rffmpeg:
         fallback_ffprobe: "/usr/lib/jellyfin-ffmpeg/ffprobe"
 EOF
 
-    show_result true "rffmpeg.yml aangemaakt"
+    show_result true "rffmpeg.yml created"
 }
 
 # ============================================================================
@@ -101,8 +101,8 @@ create_docker_compose() {
     local compose_file="${OUTPUT_DIR}/docker-compose.yml"
 
     cat > "$compose_file" << EOF
-# Transcodarr - Jellyfin met rffmpeg
-# Voor NIEUWE installaties
+# Transcodarr - Jellyfin with rffmpeg
+# For NEW installations
 
 services:
   jellyfin:
@@ -129,7 +129,7 @@ services:
       - no-new-privileges:true
 EOF
 
-    show_result true "docker-compose.yml aangemaakt"
+    show_result true "docker-compose.yml created"
 }
 
 # ============================================================================
@@ -149,16 +149,16 @@ create_setup_instructions() {
     fi
 
     cat > "$readme_file" << EOF
-# Transcodarr Setup Instructies
+# Transcodarr Setup Instructions
 
 **Mac:** ${mac_user}@${mac_ip}
 **NAS:** ${nas_ip}
 
 ---
 
-## SSH Key toevoegen aan Mac
+## Add SSH Key to Mac
 
-Voer dit uit op je Mac:
+Run this on your Mac:
 
 \`\`\`bash
 mkdir -p ~/.ssh
@@ -168,7 +168,7 @@ chmod 600 ~/.ssh/authorized_keys
 
 ---
 
-## Files kopiëren naar Synology
+## Copy Files to Synology
 
 \`\`\`bash
 sudo mkdir -p ${jellyfin_config}/rffmpeg/.ssh
@@ -178,7 +178,7 @@ sudo chown -R 911:911 ${jellyfin_config}/rffmpeg
 
 ---
 
-## Mac toevoegen aan rffmpeg
+## Add Mac to rffmpeg
 
 \`\`\`bash
 docker exec jellyfin rffmpeg add ${mac_ip} --weight 2
@@ -186,7 +186,7 @@ docker exec jellyfin rffmpeg status
 \`\`\`
 EOF
 
-    show_result true "SETUP_INSTRUCTIONS.md aangemaakt"
+    show_result true "SETUP_INSTRUCTIONS.md created"
 }
 
 # ============================================================================
@@ -201,36 +201,36 @@ install_ssh_key_on_mac() {
     if [[ -f "${OUTPUT_DIR}/rffmpeg/.ssh/id_rsa.pub" ]]; then
         public_key=$(cat "${OUTPUT_DIR}/rffmpeg/.ssh/id_rsa.pub")
     else
-        show_error "Geen SSH key gevonden. Genereer eerst een key."
+        show_error "No SSH key found. Generate a key first."
         return 1
     fi
 
     echo ""
     show_ssh_key_instructions "$mac_user" "$mac_ip"
 
-    if ask_confirm "SSH key nu installeren op Mac?"; then
+    if ask_confirm "Install SSH key on Mac now?"; then
         echo ""
-        show_info "Verbinden met Mac op ${mac_ip}..."
-        show_warning "Voer je MAC wachtwoord in (niet Synology!)"
+        show_info "Connecting to Mac at ${mac_ip}..."
+        show_warning "Enter your MAC password (not Synology!)"
         echo ""
 
         if ssh -o StrictHostKeyChecking=accept-new "${mac_user}@${mac_ip}" \
             "mkdir -p ~/.ssh && echo '${public_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && chmod 700 ~/.ssh"; then
             echo ""
-            show_result true "SSH key geïnstalleerd op Mac"
+            show_result true "SSH key installed on Mac"
             mark_step_complete "ssh_key_installed"
             return 0
         else
             echo ""
-            show_result false "SSH key installatie mislukt"
-            show_info "Probeer handmatig op je Mac:"
+            show_result false "SSH key installation failed"
+            show_info "Try manually on your Mac:"
             echo ""
             echo "mkdir -p ~/.ssh && echo '${public_key}' >> ~/.ssh/authorized_keys"
             return 1
         fi
     else
-        show_info "Je kunt de key later handmatig installeren."
-        show_info "Zie: output/SETUP_INSTRUCTIONS.md"
+        show_info "You can install the key manually later."
+        show_info "See: output/SETUP_INSTRUCTIONS.md"
         return 0
     fi
 }
@@ -251,28 +251,28 @@ copy_rffmpeg_files() {
             --border double \
             --padding "1 2" \
             --width 65 \
-            "Files Kopiëren naar Jellyfin"
+            "Copy Files to Jellyfin"
     else
         echo -e "${MAGENTA}════════════════════════════════════════════════════════════${NC}"
-        echo -e "${MAGENTA}  Files Kopiëren naar Jellyfin${NC}"
+        echo -e "${MAGENTA}  Copy Files to Jellyfin${NC}"
         echo -e "${MAGENTA}════════════════════════════════════════════════════════════${NC}"
     fi
     echo ""
 
-    echo "  De volgende commando's worden uitgevoerd:"
+    echo "  The following commands will be executed:"
     echo ""
     echo -e "  ${CYAN}1.${NC} sudo mkdir -p ${jellyfin_config}/rffmpeg/.ssh"
     echo -e "  ${CYAN}2.${NC} sudo cp -a ${OUTPUT_DIR}/rffmpeg/. ${jellyfin_config}/rffmpeg/"
     echo -e "  ${CYAN}3.${NC} sudo chown -R 911:911 ${jellyfin_config}/rffmpeg"
     echo ""
 
-    if ask_confirm "Wil je deze commando's nu uitvoeren?"; then
+    if ask_confirm "Execute these commands now?"; then
         echo ""
-        show_info "Sudo wachtwoord kan gevraagd worden..."
+        show_info "Sudo password may be requested..."
         echo ""
 
         # Step 1: Create directory
-        echo -n "  1. Directory aanmaken... "
+        echo -n "  1. Creating directory... "
         if sudo mkdir -p "${jellyfin_config}/rffmpeg/.ssh" 2>/dev/null; then
             echo -e "${GREEN}✓${NC}"
         else
@@ -281,7 +281,7 @@ copy_rffmpeg_files() {
         fi
 
         # Step 2: Copy files
-        echo -n "  2. Files kopiëren... "
+        echo -n "  2. Copying files... "
         if sudo cp -a "${OUTPUT_DIR}/rffmpeg/." "${jellyfin_config}/rffmpeg/" 2>/dev/null; then
             echo -e "${GREEN}✓${NC}"
         else
@@ -290,7 +290,7 @@ copy_rffmpeg_files() {
         fi
 
         # Step 3: Set permissions
-        echo -n "  3. Permissies zetten... "
+        echo -n "  3. Setting permissions... "
         if sudo chown -R 911:911 "${jellyfin_config}/rffmpeg" 2>/dev/null; then
             echo -e "${GREEN}✓${NC}"
         else
@@ -300,11 +300,11 @@ copy_rffmpeg_files() {
 
         echo ""
         if [[ "$success" == true ]]; then
-            show_result true "Alle files gekopieerd naar Jellyfin config"
+            show_result true "All files copied to Jellyfin config"
             mark_step_complete "files_copied"
             return 0
         else
-            show_result false "Sommige commando's zijn mislukt"
+            show_result false "Some commands failed"
             show_manual_copy_instructions "$jellyfin_config"
             return 1
         fi
@@ -318,7 +318,7 @@ show_manual_copy_instructions() {
     local jellyfin_config="$1"
 
     echo ""
-    show_info "Voer deze commando's handmatig uit:"
+    show_info "Run these commands manually:"
     echo ""
     echo -e "  ${GREEN}sudo mkdir -p ${jellyfin_config}/rffmpeg/.ssh${NC}"
     echo -e "  ${GREEN}sudo cp -a ${OUTPUT_DIR}/rffmpeg/. ${jellyfin_config}/rffmpeg/${NC}"
@@ -344,15 +344,15 @@ show_setup_summary() {
             --border double \
             --padding "1 2" \
             --width 60 \
-            "Configuratie Gegenereerd!"
+            "Configuration Generated!"
     else
         echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${GREEN}║  Configuratie Gegenereerd!                                   ║${NC}"
+        echo -e "${GREEN}║  Configuration Generated!                                    ║${NC}"
         echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
     fi
     echo ""
 
-    echo "  Gegenereerde bestanden in: ${OUTPUT_DIR}/"
+    echo "  Generated files in: ${OUTPUT_DIR}/"
     echo ""
     echo "    output/"
     echo "    ├── docker-compose.yml"
@@ -391,7 +391,7 @@ run_jellyfin_setup() {
     set_config "cache_path" "$cache_path"
     set_config "jellyfin_config" "$jellyfin_config"
 
-    show_info "Configuratie bestanden genereren..."
+    show_info "Generating configuration files..."
     echo ""
 
     # Generate files
@@ -437,13 +437,13 @@ run_add_node_setup() {
             mkdir -p "${OUTPUT_DIR}/rffmpeg/.ssh"
             cp "${jellyfin_config}/rffmpeg/.ssh/id_rsa.pub" "${OUTPUT_DIR}/rffmpeg/.ssh/"
         else
-            show_error "Geen bestaande SSH key gevonden"
-            show_info "Voer eerst een volledige setup uit"
+            show_error "No existing SSH key found"
+            show_info "Run full setup first"
             return 1
         fi
     fi
 
-    show_info "Node toevoegen: ${mac_user}@${mac_ip}"
+    show_info "Adding node: ${mac_user}@${mac_ip}"
     echo ""
 
     # Install SSH key on new Mac
@@ -451,7 +451,7 @@ run_add_node_setup() {
 
     # Show rffmpeg add command
     echo ""
-    show_info "Voeg de Mac toe aan rffmpeg:"
+    show_info "Add the Mac to rffmpeg:"
     echo ""
     echo -e "  ${GREEN}docker exec jellyfin rffmpeg add ${mac_ip} --weight 2${NC}"
     echo ""

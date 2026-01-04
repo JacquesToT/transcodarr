@@ -49,7 +49,7 @@ get_system_name() {
             local chip
             chip=$(sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -o "M[0-9][^,]*" | head -1)
             if [[ -n "$chip" ]]; then
-                echo "Mac met $chip chip"
+                echo "Mac with $chip chip"
             else
                 echo "Apple Silicon Mac"
             fi
@@ -58,7 +58,7 @@ get_system_name() {
             echo "Intel Mac"
             ;;
         *)
-            echo "Onbekend systeem"
+            echo "Unknown system"
             ;;
     esac
 }

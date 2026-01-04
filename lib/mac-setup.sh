@@ -19,14 +19,14 @@ check_homebrew() {
 
 install_homebrew() {
     if check_homebrew; then
-        show_skip "Homebrew is al geïnstalleerd"
+        show_skip "Homebrew is already installed"
         return 0
     fi
 
-    show_what_this_does "Homebrew is een package manager voor macOS. Hiermee installeren we FFmpeg."
+    show_what_this_does "Homebrew is a package manager for macOS. We use it to install FFmpeg."
 
     if command -v gum &> /dev/null; then
-        gum spin --spinner dot --title "Homebrew installeren..." -- \
+        gum spin --spinner dot --title "Installing Homebrew..." -- \
             /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     else
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -44,11 +44,11 @@ install_homebrew() {
     fi
 
     if check_homebrew; then
-        show_result true "Homebrew geïnstalleerd"
+        show_result true "Homebrew installed"
         mark_step_complete "homebrew"
         return 0
     else
-        show_result false "Homebrew installatie mislukt"
+        show_result false "Homebrew installation failed"
         return 1
     fi
 }
@@ -69,35 +69,35 @@ check_ffmpeg_fdk_aac() {
 
 install_ffmpeg() {
     if check_ffmpeg; then
-        show_skip "FFmpeg met VideoToolbox is al geïnstalleerd"
+        show_skip "FFmpeg with VideoToolbox is already installed"
         if check_ffmpeg_fdk_aac; then
-            show_info "libfdk-aac encoder beschikbaar"
+            show_info "libfdk-aac encoder available"
         fi
         return 0
     fi
 
-    show_what_this_does "FFmpeg converteert video. We installeren een versie met Apple's VideoToolbox voor hardware acceleratie."
+    show_what_this_does "FFmpeg converts video. We install a version with Apple's VideoToolbox for hardware acceleration."
 
     echo ""
-    show_info "Dit kan enkele minuten duren..."
+    show_info "This may take a few minutes..."
     echo ""
 
     # Add the tap
-    show_info "Toevoegen homebrew-ffmpeg tap..."
+    show_info "Adding homebrew-ffmpeg tap..."
     if ! brew tap homebrew-ffmpeg/ffmpeg 2>&1; then
-        show_warning "Kon homebrew-ffmpeg tap niet toevoegen, probeer standaard FFmpeg..."
+        show_warning "Could not add homebrew-ffmpeg tap, trying standard FFmpeg..."
     fi
 
     # Try to install with fdk-aac first
-    show_info "FFmpeg installeren..."
+    show_info "Installing FFmpeg..."
     if brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-fdk-aac 2>&1; then
-        show_result true "FFmpeg geïnstalleerd met fdk-aac"
+        show_result true "FFmpeg installed with fdk-aac"
     else
         # Try upgrade if already installed
-        show_warning "Probeer upgrade..."
+        show_warning "Trying upgrade..."
         if ! brew upgrade homebrew-ffmpeg/ffmpeg/ffmpeg 2>&1; then
             # Last resort: try regular ffmpeg
-            show_warning "Probeer standaard FFmpeg..."
+            show_warning "Trying standard FFmpeg..."
             brew install ffmpeg 2>&1 || true
         fi
     fi
@@ -106,24 +106,24 @@ install_ffmpeg() {
 
     # Verify installation
     if check_ffmpeg; then
-        show_result true "FFmpeg met VideoToolbox geïnstalleerd"
+        show_result true "FFmpeg with VideoToolbox installed"
         mark_step_complete "ffmpeg"
 
         if check_ffmpeg_fdk_aac; then
-            show_info "libfdk-aac encoder beschikbaar"
+            show_info "libfdk-aac encoder available"
         else
-            show_warning "libfdk-aac niet beschikbaar (aac wordt gebruikt)"
+            show_warning "libfdk-aac not available (aac will be used)"
         fi
         return 0
     else
         if [[ -f "/opt/homebrew/bin/ffmpeg" ]]; then
-            show_warning "FFmpeg geïnstalleerd maar VideoToolbox niet gevonden"
-            show_info "Software encoding wordt gebruikt"
+            show_warning "FFmpeg installed but VideoToolbox not found"
+            show_info "Software encoding will be used"
             mark_step_complete "ffmpeg"
             return 0
         else
-            show_result false "FFmpeg niet gevonden"
-            show_info "Probeer handmatig: brew install ffmpeg"
+            show_result false "FFmpeg not found"
+            show_info "Try manually: brew install ffmpeg"
             return 1
         fi
     fi
@@ -141,20 +141,20 @@ check_ssh_enabled() {
 
 enable_ssh() {
     if check_ssh_enabled; then
-        show_skip "Remote Login (SSH) is al ingeschakeld"
+        show_skip "Remote Login (SSH) is already enabled"
         return 0
     fi
 
-    show_what_this_does "Remote Login stelt Jellyfin in staat om FFmpeg opdrachten naar je Mac te sturen."
+    show_what_this_does "Remote Login allows Jellyfin to send FFmpeg commands to your Mac."
 
     if sudo systemsetup -setremotelogin on 2>/dev/null; then
-        show_result true "Remote Login ingeschakeld"
+        show_result true "Remote Login enabled"
         mark_step_complete "ssh_enabled"
         return 0
     else
-        show_warning "Kon Remote Login niet automatisch inschakelen"
+        show_warning "Could not automatically enable Remote Login"
         show_remote_login_instructions
-        if wait_for_user "Heb je Remote Login ingeschakeld?"; then
+        if wait_for_user "Have you enabled Remote Login?"; then
             mark_step_complete "ssh_enabled"
             return 0
         fi
@@ -178,24 +178,24 @@ check_synthetic_conf() {
 
 setup_synthetic_links() {
     if check_synthetic_links; then
-        show_skip "/data en /config bestaan al"
+        show_skip "/data and /config already exist"
         return 0
     fi
 
     if check_synthetic_conf; then
-        show_info "synthetic.conf is geconfigureerd, herstart nodig"
+        show_info "synthetic.conf is configured, reboot required"
         set_pending_reboot
         return 2  # Special return code for "needs reboot"
     fi
 
-    show_what_this_does "We maken /data en /config mount points aan. Dit vereist een herstart."
+    show_what_this_does "We create /data and /config mount points. This requires a reboot."
 
-    show_explanation "Waarom synthetic links?" \
-        "macOS staat niet toe om mappen in / te maken." \
-        "Synthetic links zijn een speciale manier om dit toch te doen." \
-        "Na een herstart verschijnen /data en /config automatisch."
+    show_explanation "Why synthetic links?" \
+        "macOS doesn't allow creating folders in /." \
+        "Synthetic links are a special way to do this." \
+        "After a reboot, /data and /config will appear automatically."
 
-    if ask_confirm "Synthetic links aanmaken? (vereist sudo)"; then
+    if ask_confirm "Create synthetic links? (requires sudo)"; then
         # Create the backing directories
         sudo mkdir -p /System/Volumes/Data/data/media
         sudo mkdir -p /System/Volumes/Data/config/cache
@@ -206,13 +206,13 @@ setup_synthetic_links() {
             echo -e "config\tSystem/Volumes/Data/config"
         } | sudo tee /etc/synthetic.conf > /dev/null
 
-        show_result true "Synthetic links geconfigureerd"
+        show_result true "Synthetic links configured"
         mark_step_complete "synthetic_links"
         set_pending_reboot
 
         return 2  # Needs reboot
     else
-        show_warning "Synthetic links overgeslagen"
+        show_warning "Synthetic links skipped"
         return 1
     fi
 }
@@ -232,11 +232,11 @@ create_media_mount_script() {
     local script_path="/usr/local/bin/mount-nfs-media.sh"
 
     if [[ -f "$script_path" ]]; then
-        show_skip "Media mount script bestaat al"
+        show_skip "Media mount script already exists"
         return 0
     fi
 
-    show_info "Media mount script aanmaken..."
+    show_info "Creating media mount script..."
     sudo mkdir -p /usr/local/bin
 
     sudo tee "$script_path" > /dev/null << EOF
@@ -273,7 +273,7 @@ log "NFS mounted: \$NFS_SHARE -> \$MOUNT_POINT"
 EOF
 
     sudo chmod +x "$script_path"
-    show_result true "Media mount script aangemaakt"
+    show_result true "Media mount script created"
 }
 
 create_cache_mount_script() {
@@ -282,11 +282,11 @@ create_cache_mount_script() {
     local script_path="/usr/local/bin/mount-synology-cache.sh"
 
     if [[ -f "$script_path" ]]; then
-        show_skip "Cache mount script bestaat al"
+        show_skip "Cache mount script already exists"
         return 0
     fi
 
-    show_info "Cache mount script aanmaken..."
+    show_info "Creating cache mount script..."
 
     sudo tee "$script_path" > /dev/null << EOF
 #!/bin/bash
@@ -320,7 +320,7 @@ fi
 EOF
 
     sudo chmod +x "$script_path"
-    show_result true "Cache mount script aangemaakt"
+    show_result true "Cache mount script created"
 }
 
 # ============================================================================
@@ -336,11 +336,11 @@ create_launch_daemons() {
     local plist_dir="/Library/LaunchDaemons"
 
     if check_launch_daemons; then
-        show_skip "LaunchDaemons bestaan al"
+        show_skip "LaunchDaemons already exist"
         return 0
     fi
 
-    show_info "LaunchDaemons aanmaken voor auto-mount..."
+    show_info "Creating LaunchDaemons for auto-mount..."
 
     # Media mount daemon
     sudo tee "$plist_dir/com.transcodarr.nfs-media.plist" > /dev/null << 'EOF'
@@ -386,7 +386,7 @@ EOF
     sudo launchctl load "$plist_dir/com.transcodarr.nfs-media.plist" 2>/dev/null || true
     sudo launchctl load "$plist_dir/com.transcodarr.nfs-cache.plist" 2>/dev/null || true
 
-    show_result true "LaunchDaemons aangemaakt en geladen"
+    show_result true "LaunchDaemons created and loaded"
     mark_step_complete "launch_daemons"
 }
 
@@ -402,15 +402,15 @@ check_energy_settings() {
 
 configure_energy_settings() {
     if check_energy_settings; then
-        show_skip "Energy settings zijn al geconfigureerd"
+        show_skip "Energy settings are already configured"
         return 0
     fi
 
-    show_what_this_does "We zetten slaapstand uit zodat je Mac altijd beschikbaar is voor transcoding."
+    show_what_this_does "We disable sleep mode so your Mac is always available for transcoding."
 
     sudo pmset -a sleep 0 displaysleep 0 disksleep 0 powernap 0 autorestart 1 womp 1
 
-    show_result true "Energy settings geconfigureerd"
+    show_result true "Energy settings configured"
     show_info "sleep=0, autorestart=1, Wake-on-LAN=1"
     mark_step_complete "energy_settings"
 }
@@ -437,7 +437,7 @@ run_mac_setup() {
 
     # Check if running on Mac
     if [[ "$OSTYPE" != "darwin"* ]]; then
-        show_error "Dit script moet op macOS draaien"
+        show_error "This script must run on macOS"
         return 1
     fi
 
@@ -480,12 +480,12 @@ run_mac_setup() {
     # If reboot needed, stop here
     if [[ "$needs_reboot" == true ]]; then
         show_reboot_instructions "$(pwd)"
-        if ask_confirm "Nu herstarten?"; then
-            show_info "Herstarten over 3 seconden..."
+        if ask_confirm "Reboot now?"; then
+            show_info "Rebooting in 3 seconds..."
             sleep 3
             sudo reboot
         else
-            show_warning "Vergeet niet te herstarten voordat je verdergaat!"
+            show_warning "Don't forget to reboot before continuing!"
         fi
         return 2  # Special return code
     fi
@@ -497,7 +497,7 @@ run_mac_setup() {
         create_launch_daemons || ((errors++))
         echo ""
     else
-        show_warning "Synthetic links niet gevonden, mount scripts overgeslagen"
+        show_warning "Synthetic links not found, mount scripts skipped"
         echo ""
     fi
 
@@ -509,8 +509,8 @@ run_mac_setup() {
     if [[ $errors -eq 0 ]]; then
         show_mac_summary "$nas_ip"
     else
-        show_warning "Setup voltooid met $errors waarschuwing(en)"
-        show_info "Controleer de berichten hierboven voor details"
+        show_warning "Setup completed with $errors warning(s)"
+        show_info "Check the messages above for details"
     fi
 
     # Show DOCKER_MODS instructions
@@ -534,12 +534,12 @@ run_mac_setup_after_reboot() {
     cache_path=$(get_config "cache_path")
 
     if [[ -z "$nas_ip" ]]; then
-        show_error "Geen opgeslagen configuratie gevonden"
-        show_info "Voer de installer opnieuw uit"
+        show_error "No saved configuration found"
+        show_info "Run the installer again"
         return 1
     fi
 
-    show_info "Verder met opgeslagen configuratie..."
+    show_info "Continuing with saved configuration..."
     show_info "NAS IP: $nas_ip"
 
     clear_pending_reboot

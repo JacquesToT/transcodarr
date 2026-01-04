@@ -57,33 +57,33 @@ check_and_install_gum() {
         if is_synology; then
             echo ""
             echo -e "${RED}════════════════════════════════════════════════════════════${NC}"
-            echo -e "${RED}  Homebrew is niet geïnstalleerd op je Synology!${NC}"
+            echo -e "${RED}  Homebrew is not installed on your Synology!${NC}"
             echo -e "${RED}════════════════════════════════════════════════════════════${NC}"
             echo ""
-            echo "Installeer Homebrew eerst met deze commando's:"
+            echo "Install Homebrew first with these commands:"
             echo ""
             echo -e "${GREEN}git clone https://github.com/MrCee/Synology-Homebrew.git ~/Synology-Homebrew${NC}"
             echo -e "${GREEN}~/Synology-Homebrew/install-synology-homebrew.sh${NC}"
             echo ""
-            echo "Kies optie 1 (Minimal installation)."
-            echo "Daarna: brew install gum"
+            echo "Choose option 1 (Minimal installation)."
+            echo "Then: brew install gum"
             echo ""
-            echo "Sluit je terminal, maak opnieuw SSH verbinding, en voer ./install.sh opnieuw uit."
+            echo "Close your terminal, reconnect via SSH, and run ./install.sh again."
             exit 1
         fi
 
         # Mac: install Homebrew
-        echo "Homebrew installeren..."
+        echo "Installing Homebrew..."
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
         setup_brew_path || {
-            echo "Homebrew installatie mislukt"
+            echo "Homebrew installation failed"
             exit 1
         }
     fi
 
     # Install gum if needed
     if ! command -v gum &> /dev/null; then
-        echo "Gum installeren (voor interactieve UI)..."
+        echo "Installing gum (for interactive UI)..."
         brew install gum
     fi
 }
@@ -100,54 +100,54 @@ wizard_synology() {
     local jellyfin_config=""
 
     # Step 1: NFS Setup
-    show_step 1 5 "NFS Configureren"
+    show_step 1 5 "Configure NFS"
 
     # Check if NFS is already enabled
     if is_nfs_enabled; then
-        show_skip "NFS service is al actief"
-        show_info "Controleer of je media en cache folders NFS permissies hebben."
+        show_skip "NFS service is already active"
+        show_info "Make sure your media and cache folders have NFS permissions."
         echo ""
-        if ! ask_confirm "Zijn de NFS permissies al ingesteld?"; then
+        if ! ask_confirm "Are NFS permissions already configured?"; then
             show_nfs_instructions
-            wait_for_user "Heb je de NFS permissies ingesteld?"
+            wait_for_user "Have you configured the NFS permissions?"
         fi
     else
-        show_warning "NFS is nog niet ingeschakeld op deze Synology!"
+        show_warning "NFS is not yet enabled on this Synology!"
         echo ""
         show_nfs_instructions
-        wait_for_user "Heb je NFS ingeschakeld en de permissies ingesteld?"
+        wait_for_user "Have you enabled NFS and configured the permissions?"
     fi
     mark_step_complete "nfs_setup"
 
     # Step 2: Collect configuration
-    show_step 2 5 "Configuratie Verzamelen"
+    show_step 2 5 "Collect Configuration"
 
     echo ""
-    show_what_this_does "We hebben wat informatie nodig over je Mac en je NAS."
+    show_what_this_does "We need some information about your Mac and your NAS."
     echo ""
 
     # Get Mac IP
-    mac_ip=$(ask_input "Mac IP adres" "192.168.1.50")
+    mac_ip=$(ask_input "Mac IP address" "192.168.1.50")
     if [[ -z "$mac_ip" ]]; then
-        show_error "Mac IP is verplicht"
+        show_error "Mac IP is required"
         return 1
     fi
 
     # Validate Mac IP
-    show_info "Controleren of Mac bereikbaar is..."
+    show_info "Checking if Mac is reachable..."
     if ! ping -c1 -W2 "$mac_ip" &>/dev/null; then
-        show_warning "Mac op $mac_ip niet bereikbaar. Controleer het IP adres."
-        if ! ask_confirm "Toch doorgaan?"; then
+        show_warning "Mac at $mac_ip is not reachable. Check the IP address."
+        if ! ask_confirm "Continue anyway?"; then
             return 1
         fi
     else
-        show_result true "Mac bereikbaar op $mac_ip"
+        show_result true "Mac reachable at $mac_ip"
     fi
 
     # Get Mac username
-    mac_user=$(ask_input "Mac gebruikersnaam" "$(whoami)")
+    mac_user=$(ask_input "Mac username" "$(whoami)")
     if [[ -z "$mac_user" ]]; then
-        show_error "Mac gebruikersnaam is verplicht"
+        show_error "Mac username is required"
         return 1
     fi
 
@@ -155,7 +155,7 @@ wizard_synology() {
     local detected_nas_ip
     detected_nas_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
     [[ -z "$detected_nas_ip" ]] && detected_nas_ip="192.168.1.100"
-    nas_ip=$(ask_input "NAS IP adres" "$detected_nas_ip")
+    nas_ip=$(ask_input "NAS IP address" "$detected_nas_ip")
 
     # Get Jellyfin config path
     local detected_config
@@ -166,35 +166,35 @@ wizard_synology() {
     cache_path=$(ask_input "Transcode cache folder" "${jellyfin_config}/cache")
 
     echo ""
-    show_info "Configuratie:"
+    show_info "Configuration:"
     echo "  Mac:           $mac_user@$mac_ip"
     echo "  NAS:           $nas_ip"
     echo "  Jellyfin:      $jellyfin_config"
     echo "  Cache:         $cache_path"
     echo ""
 
-    if ! ask_confirm "Klopt dit?"; then
-        show_info "Start opnieuw om andere waarden in te voeren."
+    if ! ask_confirm "Is this correct?"; then
+        show_info "Restart to enter different values."
         return 1
     fi
 
     mark_step_complete "config_collected"
 
     # Step 3: Generate SSH key and config files
-    show_step 3 5 "Configuratie Genereren"
+    show_step 3 5 "Generate Configuration"
     run_jellyfin_setup "$mac_ip" "$mac_user" "$nas_ip" "$cache_path" "$jellyfin_config"
 
     # Steps 4-5 are handled inside run_jellyfin_setup (SSH key install, copy instructions)
 
     echo ""
-    show_result true "Synology setup voltooid!"
+    show_result true "Synology setup complete!"
     echo ""
-    show_info "Ga nu naar je Mac en open Terminal:"
+    show_info "Now go to your Mac and open Terminal:"
     echo ""
-    echo "  1. Als je Git nog niet hebt, installeer Xcode Command Line Tools:"
+    echo "  1. If you don't have Git, install Xcode Command Line Tools:"
     echo -e "     ${GREEN}xcode-select --install${NC}"
     echo ""
-    echo "  2. Clone en start de installer:"
+    echo "  2. Clone and start the installer:"
     echo -e "     ${GREEN}git clone https://github.com/JacquesToT/Transcodarr.git ~/Transcodarr${NC}"
     echo -e "     ${GREEN}cd ~/Transcodarr && ./install.sh${NC}"
     echo ""
@@ -211,33 +211,33 @@ wizard_mac() {
 
     # Check for pending reboot first
     if is_reboot_pending; then
-        show_info "Verder na herstart..."
+        show_info "Continuing after reboot..."
         clear_pending_reboot
 
         # Check if synthetic links now exist
         if check_synthetic_links; then
-            show_result true "/data en /config directories gevonden"
+            show_result true "/data and /config directories found"
             # Continue with post-reboot setup
             run_mac_setup_after_reboot
             return $?
         else
-            show_error "Synthetic links niet gevonden. Herstart je Mac en probeer opnieuw."
+            show_error "Synthetic links not found. Restart your Mac and try again."
             return 1
         fi
     fi
 
     # Step 1: Prerequisites
-    show_step 1 4 "Prerequisites Installeren"
+    show_step 1 4 "Install Prerequisites"
 
     install_homebrew
     install_ffmpeg
     enable_ssh
 
     # Step 2: Get NAS info
-    show_step 2 4 "NAS Configuratie"
+    show_step 2 4 "NAS Configuration"
 
     echo ""
-    show_what_this_does "We moeten weten waar je NAS staat en waar je media en cache staan."
+    show_what_this_does "We need to know where your NAS is and where your media and cache are located."
     echo ""
 
     # Try to load from state first
@@ -247,37 +247,37 @@ wizard_mac() {
 
     # If not in state, ask
     if [[ -z "$nas_ip" ]]; then
-        nas_ip=$(ask_input "NAS/Synology IP adres" "192.168.1.100")
+        nas_ip=$(ask_input "NAS/Synology IP address" "192.168.1.100")
     else
-        show_info "NAS IP uit opgeslagen configuratie: $nas_ip"
-        if ! ask_confirm "Klopt dit?"; then
-            nas_ip=$(ask_input "NAS/Synology IP adres" "$nas_ip")
+        show_info "NAS IP from saved configuration: $nas_ip"
+        if ! ask_confirm "Is this correct?"; then
+            nas_ip=$(ask_input "NAS/Synology IP address" "$nas_ip")
         fi
     fi
 
     # Validate NAS IP
-    show_info "Controleren of NAS bereikbaar is..."
+    show_info "Checking if NAS is reachable..."
     if ! ping -c1 -W2 "$nas_ip" &>/dev/null; then
-        show_warning "NAS op $nas_ip niet bereikbaar."
-        if ! ask_confirm "Toch doorgaan?"; then
+        show_warning "NAS at $nas_ip is not reachable."
+        if ! ask_confirm "Continue anyway?"; then
             return 1
         fi
     else
-        show_result true "NAS bereikbaar op $nas_ip"
+        show_result true "NAS reachable at $nas_ip"
     fi
 
     if [[ -z "$media_path" ]]; then
-        media_path=$(ask_input "Media folder op NAS (NFS export)" "/volume1/data/media")
+        media_path=$(ask_input "Media folder on NAS (NFS export)" "/volume1/data/media")
     fi
 
     if [[ -z "$cache_path" ]]; then
-        cache_path=$(ask_input "Cache folder op NAS (NFS export)" "/volume1/docker/jellyfin/cache")
+        cache_path=$(ask_input "Cache folder on NAS (NFS export)" "/volume1/docker/jellyfin/cache")
     fi
 
     mark_step_complete "nas_config"
 
     # Step 3: Synthetic links (may require reboot)
-    show_step 3 4 "Mount Points Aanmaken"
+    show_step 3 4 "Create Mount Points"
 
     local synth_result
     setup_synthetic_links
@@ -286,19 +286,19 @@ wizard_mac() {
     if [[ $synth_result -eq 2 ]]; then
         # Needs reboot
         show_reboot_instructions "$(pwd)"
-        if ask_confirm "Nu herstarten?"; then
-            show_info "Herstarten over 3 seconden..."
+        if ask_confirm "Reboot now?"; then
+            show_info "Rebooting in 3 seconds..."
             sleep 3
             sudo reboot
         else
-            show_warning "Vergeet niet te herstarten!"
-            show_info "Na herstart: cd $(pwd) && ./install.sh"
+            show_warning "Don't forget to reboot!"
+            show_info "After reboot: cd $(pwd) && ./install.sh"
         fi
         return 0  # Exit cleanly, will continue after reboot
     fi
 
     # Step 4: NFS mounts and LaunchDaemons
-    show_step 4 4 "NFS Mounts Configureren"
+    show_step 4 4 "Configure NFS Mounts"
 
     create_media_mount_script "$nas_ip" "$media_path"
     create_cache_mount_script "$nas_ip" "$cache_path"
@@ -321,33 +321,33 @@ wizard_mac() {
 # ============================================================================
 
 wizard_add_node_synology() {
-    show_step 1 2 "Nieuwe Mac Toevoegen"
+    show_step 1 2 "Add New Mac"
 
     local mac_ip
     local mac_user
 
-    mac_ip=$(ask_input "Nieuwe Mac IP adres" "192.168.1.51")
-    mac_user=$(ask_input "Mac gebruikersnaam" "$(whoami)")
+    mac_ip=$(ask_input "New Mac IP address" "192.168.1.51")
+    mac_user=$(ask_input "Mac username" "$(whoami)")
 
-    show_step 2 2 "SSH Key Installeren"
+    show_step 2 2 "Install SSH Key"
     run_add_node_setup "$mac_ip" "$mac_user"
 
     echo ""
-    show_result true "Node configuratie voltooid!"
+    show_result true "Node configuration complete!"
 }
 
 wizard_add_node_mac() {
-    show_step 1 2 "Mac als Node Toevoegen"
+    show_step 1 2 "Add Mac as Node"
 
-    show_info "Deze Mac wordt toegevoegd als transcode node."
+    show_info "This Mac will be added as a transcode node."
     echo ""
 
     # Check for existing SSH key
     if check_transcodarr_ssh_key; then
-        show_skip "SSH key is al geconfigureerd"
+        show_skip "SSH key is already configured"
     else
-        show_warning "Geen SSH key gevonden."
-        show_info "Voer de installer uit op je Synology om de SSH key te installeren."
+        show_warning "No SSH key found."
+        show_info "Run the installer on your Synology to install the SSH key."
         return 1
     fi
 
@@ -355,20 +355,20 @@ wizard_add_node_mac() {
     local nas_ip
     nas_ip=$(get_config "nas_ip")
     if [[ -z "$nas_ip" ]]; then
-        nas_ip=$(ask_input "NAS/Synology IP adres" "192.168.1.100")
+        nas_ip=$(ask_input "NAS/Synology IP address" "192.168.1.100")
     fi
 
-    show_step 2 2 "Mac Configureren"
+    show_step 2 2 "Configure Mac"
 
     # Run abbreviated setup (skip already done steps)
     local media_path
     local cache_path
 
     media_path=$(get_config "media_path")
-    [[ -z "$media_path" ]] && media_path=$(ask_input "Media folder op NAS" "/volume1/data/media")
+    [[ -z "$media_path" ]] && media_path=$(ask_input "Media folder on NAS" "/volume1/data/media")
 
     cache_path=$(get_config "cache_path")
-    [[ -z "$cache_path" ]] && cache_path=$(ask_input "Cache folder op NAS" "/volume1/docker/jellyfin/cache")
+    [[ -z "$cache_path" ]] && cache_path=$(ask_input "Cache folder on NAS" "/volume1/docker/jellyfin/cache")
 
     # Only run what's needed
     if ! check_synthetic_links; then
@@ -392,7 +392,7 @@ wizard_add_node_mac() {
     echo ""
     local mac_ip
     mac_ip=$(ipconfig getifaddr en0 2>/dev/null || echo "<MAC_IP>")
-    show_info "Mac geconfigureerd! Voeg deze Mac toe op je Synology:"
+    show_info "Mac configured! Add this Mac on your Synology:"
     echo ""
     echo -e "  ${GREEN}docker exec jellyfin rffmpeg add $mac_ip --weight 2${NC}"
     echo ""
@@ -416,7 +416,7 @@ main() {
     system_name=$(get_system_name)
 
     echo ""
-    show_info "Gedetecteerd systeem: $system_name"
+    show_info "Detected system: $system_name"
 
     # Detect install status
     local install_status
@@ -424,19 +424,19 @@ main() {
 
     case "$install_status" in
         "first_time")
-            show_info "Dit lijkt een eerste installatie te zijn."
+            show_info "This looks like a first-time installation."
             ;;
         "adding_node")
-            show_info "FFmpeg is geïnstalleerd, SSH key ontbreekt nog."
+            show_info "FFmpeg is installed, SSH key is still missing."
             ;;
         "partial")
-            show_info "Gedeeltelijke installatie gedetecteerd."
+            show_info "Partial installation detected."
             ;;
         "fully_configured")
-            show_info "Systeem lijkt volledig geconfigureerd."
+            show_info "System appears to be fully configured."
             ;;
         "configured")
-            show_info "rffmpeg is al geconfigureerd."
+            show_info "rffmpeg is already configured."
             ;;
     esac
 
@@ -446,15 +446,15 @@ main() {
     if is_synology; then
         case "$install_status" in
             "first_time")
-                if ask_confirm "Eerste keer setup starten?"; then
+                if ask_confirm "Start first-time setup?"; then
                     wizard_synology
                 fi
                 ;;
             "configured")
-                if ask_confirm "Een nieuwe Mac node toevoegen?"; then
+                if ask_confirm "Add a new Mac node?"; then
                     wizard_add_node_synology
                 else
-                    show_info "Gebruik de volgende commando's om nodes te beheren:"
+                    show_info "Use the following commands to manage nodes:"
                     echo ""
                     echo "  docker exec jellyfin rffmpeg status"
                     echo "  docker exec jellyfin rffmpeg add <IP> --weight 2"
@@ -465,41 +465,41 @@ main() {
     elif is_mac; then
         case "$install_status" in
             "first_time")
-                if ask_confirm "Mac setup starten?"; then
+                if ask_confirm "Start Mac setup?"; then
                     wizard_mac
                 fi
                 ;;
             "adding_node")
-                if ask_confirm "Deze Mac als node toevoegen?"; then
+                if ask_confirm "Add this Mac as a node?"; then
                     wizard_add_node_mac
                 fi
                 ;;
             "partial")
-                show_info "Partiële installatie gedetecteerd."
+                show_info "Partial installation detected."
                 if is_reboot_pending; then
-                    if ask_confirm "Verdergaan na herstart?"; then
+                    if ask_confirm "Continue after reboot?"; then
                         wizard_mac
                     fi
                 else
-                    if ask_confirm "Setup voltooien?"; then
+                    if ask_confirm "Complete setup?"; then
                         wizard_mac
                     fi
                 fi
                 ;;
             "fully_configured")
-                show_info "Deze Mac is al volledig geconfigureerd."
+                show_info "This Mac is already fully configured."
                 local mac_ip
                 mac_ip=$(ipconfig getifaddr en0 2>/dev/null || echo "<MAC_IP>")
                 echo ""
-                echo "  Voeg deze Mac toe aan rffmpeg:"
+                echo "  Add this Mac to rffmpeg:"
                 echo -e "  ${GREEN}docker exec jellyfin rffmpeg add $mac_ip --weight 2${NC}"
                 echo ""
-                echo "  Of voer de uninstaller uit:"
+                echo "  Or run the uninstaller:"
                 echo -e "  ${GREEN}./uninstall.sh${NC}"
                 ;;
         esac
     else
-        show_error "Onbekend systeem. Deze installer werkt alleen op Synology en macOS."
+        show_error "Unknown system. This installer only works on Synology and macOS."
         exit 1
     fi
 
