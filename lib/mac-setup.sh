@@ -5,9 +5,10 @@
 #
 
 # Source dependencies (if not already sourced)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-[[ -z "$STATE_DIR" ]] && source "$SCRIPT_DIR/state.sh"
-[[ -z "$RED" ]] && source "$SCRIPT_DIR/ui.sh"
+# Use local variable to avoid overwriting parent SCRIPT_DIR
+_MAC_SETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[[ -z "$STATE_DIR" ]] && source "$_MAC_SETUP_DIR/state.sh"
+[[ -z "$RED" ]] && source "$_MAC_SETUP_DIR/ui.sh"
 
 # ============================================================================
 # HOMEBREW

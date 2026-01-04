@@ -4,12 +4,13 @@
 # Generates configuration files locally in output folder
 #
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUTPUT_DIR="${SCRIPT_DIR}/../output"
+# Use local variable to avoid overwriting parent SCRIPT_DIR
+_JELLYFIN_SETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OUTPUT_DIR="${_JELLYFIN_SETUP_DIR}/../output"
 
 # Source dependencies
-[[ -z "$STATE_DIR" ]] && source "$SCRIPT_DIR/state.sh"
-[[ -z "$RED" ]] && source "$SCRIPT_DIR/ui.sh"
+[[ -z "$STATE_DIR" ]] && source "$_JELLYFIN_SETUP_DIR/state.sh"
+[[ -z "$RED" ]] && source "$_JELLYFIN_SETUP_DIR/ui.sh"
 
 # ============================================================================
 # SSH KEY GENERATION

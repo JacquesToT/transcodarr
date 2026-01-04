@@ -5,9 +5,10 @@
 #
 
 # Source dependencies (if not already sourced)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-[[ -z "$STATE_DIR" ]] && source "$SCRIPT_DIR/state.sh"
-[[ -z "$RED" ]] && source "$SCRIPT_DIR/ui.sh"
+# Use local variable to avoid overwriting parent SCRIPT_DIR
+_REMOTE_SSH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[[ -z "$STATE_DIR" ]] && source "$_REMOTE_SSH_DIR/state.sh"
+[[ -z "$RED" ]] && source "$_REMOTE_SSH_DIR/ui.sh"
 
 # ============================================================================
 # SSH CONNECTION MANAGEMENT
