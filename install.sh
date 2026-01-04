@@ -717,6 +717,37 @@ wizard_add_node_mac() {
 }
 
 # ============================================================================
+# MAIN MENU
+# ============================================================================
+
+show_main_menu() {
+    local install_status="$1"
+    local menu_options=()
+
+    # Build menu based on install status
+    if [[ "$install_status" == "first_time" ]]; then
+        menu_options+=("🚀 Install Transcodarr")
+    else
+        menu_options+=("🚀 Install Transcodarr (reinstall)")
+    fi
+
+    menu_options+=("➕ Add a new Mac node")
+
+    # Only show Monitor if configured
+    if [[ "$install_status" == "configured" ]] && [[ -f "$SCRIPT_DIR/monitor.sh" ]]; then
+        menu_options+=("📊 Monitor")
+    fi
+
+    menu_options+=("❌ Exit")
+
+    # Show menu with gum
+    local choice
+    choice=$(gum choose --header "What would you like to do?" "${menu_options[@]}")
+
+    echo "$choice"
+}
+
+# ============================================================================
 # MAIN ENTRY POINT
 # ============================================================================
 
@@ -768,52 +799,48 @@ main() {
         show_info "Resuming installation (waiting for Mac reboot)..."
         echo ""
         wizard_synology
-        echo ""
+        # After install, show menu
+        main_menu_loop
         return
     fi
 
-    # Detect install status
-    local install_status
-    install_status=$(get_install_status)
+    # Start menu loop
+    main_menu_loop
+}
 
-    case "$install_status" in
-        "first_time")
-            show_info "This looks like a first-time installation."
-            ;;
-        "configured")
-            show_info "rffmpeg is already configured."
-            ;;
-    esac
+main_menu_loop() {
+    while true; do
+        # Detect install status
+        local install_status
+        install_status=$(get_install_status)
 
-    echo ""
+        echo ""
 
-    # Route to appropriate wizard
-    case "$install_status" in
-        "first_time")
-            if ask_confirm "Start first-time setup?"; then
-                wizard_synology
-            fi
-            ;;
-        "configured")
-            if ask_confirm "Add a new Mac node?"; then
-                wizard_add_node_synology
-            else
-                show_info "Use the following commands to manage nodes:"
+        # Show menu and get choice
+        local choice
+        choice=$(show_main_menu "$install_status")
+
+        case "$choice" in
+            "🚀 Install Transcodarr"*)
                 echo ""
-                echo "  docker exec jellyfin rffmpeg status"
-                echo "  docker exec jellyfin rffmpeg add <IP> --weight 2"
-                echo "  docker exec jellyfin rffmpeg remove <IP>"
-            fi
-            ;;
-        *)
-            # Partial or other state - try to continue
-            if ask_confirm "Continue setup?"; then
                 wizard_synology
-            fi
-            ;;
-    esac
-
-    echo ""
+                ;;
+            "➕ Add a new Mac node")
+                echo ""
+                wizard_add_node_synology
+                ;;
+            "📊 Monitor")
+                echo ""
+                show_info "Starting Transcodarr Monitor..."
+                exec "$SCRIPT_DIR/monitor.sh"
+                ;;
+            "❌ Exit"|"")
+                echo ""
+                show_info "Goodbye!"
+                exit 0
+                ;;
+        esac
+    done
 }
 
 # Run main
