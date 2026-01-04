@@ -18,6 +18,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Git worktrees
+.worktrees/
+
 # Logs
 *.log
 logs/
