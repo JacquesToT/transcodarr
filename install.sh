@@ -232,25 +232,54 @@ wizard_synology() {
     set_config "jellyfin_config" "$jellyfin_config"
     mark_step_complete "config_collected"
 
-    # Step 3: Verify Mac is reachable
+    # Step 3: Verify Mac is reachable (with retry)
     show_step 3 8 "Connect to Mac"
 
-    show_info "Checking if Mac is reachable..."
-    if ! test_mac_reachable "$mac_ip"; then
-        show_error "Mac at $mac_ip is not reachable"
-        show_info "Check the IP address and try again"
-        return 1
-    fi
-    show_result true "Mac reachable at $mac_ip"
+    local mac_reachable=false
+    while [[ "$mac_reachable" == "false" ]]; do
+        show_info "Checking if Mac is reachable at $mac_ip..."
+        if test_mac_reachable "$mac_ip"; then
+            show_result true "Mac reachable at $mac_ip"
+            mac_reachable=true
+        else
+            show_error "Mac at $mac_ip is not reachable"
+            echo ""
+            if ask_confirm "Try a different IP address?"; then
+                mac_ip=$(ask_input "Mac IP address" "$mac_ip")
+                set_config "mac_ip" "$mac_ip"
+            else
+                show_info "Check that your Mac is turned on and connected to the network"
+                return 1
+            fi
+        fi
+    done
 
-    # Check SSH port
-    show_info "Checking if SSH is enabled on Mac..."
-    if ! test_ssh_port "$mac_ip"; then
-        show_warning "SSH port not open on Mac"
-        show_remote_login_instructions
-        wait_for_user "Have you enabled Remote Login on Mac?"
-    fi
-    show_result true "SSH port is open"
+    # Check SSH port (with retry)
+    local ssh_open=false
+    while [[ "$ssh_open" == "false" ]]; do
+        show_info "Checking if SSH is enabled on Mac..."
+        if test_ssh_port "$mac_ip"; then
+            show_result true "SSH port is open"
+            ssh_open=true
+        else
+            show_warning "SSH port not open on Mac at $mac_ip"
+            show_remote_login_instructions
+            echo ""
+            if ask_confirm "Try again after enabling Remote Login?"; then
+                continue
+            elif ask_confirm "Try a different IP address?"; then
+                mac_ip=$(ask_input "Mac IP address" "$mac_ip")
+                set_config "mac_ip" "$mac_ip"
+                # Re-check reachability
+                if ! test_mac_reachable "$mac_ip"; then
+                    show_error "Mac at $mac_ip is not reachable"
+                    continue
+                fi
+            else
+                return 1
+            fi
+        fi
+    done
 
     # Step 4: Generate and install SSH key
     show_step 4 8 "Setup SSH Key"
