@@ -75,14 +75,22 @@ set_state_value() {
         create_state
     fi
 
+    # Escape special characters in value for sed
+    local escaped_value
+    escaped_value=$(printf '%s' "$value" | sed 's/[&/\]/\\&/g')
+
     if grep -q "\"$key\":" "$STATE_FILE"; then
-        # Key exists, update it
-        sed -i.bak "s/\"$key\": *\"[^\"]*\"/\"$key\": \"$value\"/" "$STATE_FILE"
+        # Key exists, update it - use | as delimiter to avoid issues with /
+        sed -i.bak "s|\"$key\": *\"[^\"]*\"|\"$key\": \"$escaped_value\"|" "$STATE_FILE"
         rm -f "${STATE_FILE}.bak"
     else
         # Key doesn't exist, add it before the last }
-        sed -i.bak "s/}$/,\n  \"$key\": \"$value\"\n}/" "$STATE_FILE"
-        rm -f "${STATE_FILE}.bak"
+        # Use a temp file approach for portability
+        local temp_file="${STATE_FILE}.tmp"
+        awk -v key="$key" -v val="$escaped_value" '
+            /^}$/ { print "  ,\"" key "\": \"" val "\"" }
+            { print }
+        ' "$STATE_FILE" > "$temp_file" && mv "$temp_file" "$STATE_FILE"
     fi
 }
 
@@ -117,19 +125,24 @@ set_config() {
         create_state
     fi
 
-    # Read current config section
-    local temp_file="${STATE_FILE}.tmp"
+    # Escape special characters in value for sed
+    local escaped_value
+    escaped_value=$(printf '%s' "$value" | sed 's/[&/\]/\\&/g')
 
     if grep -q "\"config\": *{" "$STATE_FILE"; then
         # Config section exists, add/update key
-        # This is simplified - for complex JSON, use jq
         if grep -q "\"$key\":" "$STATE_FILE"; then
-            sed -i.bak "s/\"$key\": *\"[^\"]*\"/\"$key\": \"$value\"/" "$STATE_FILE"
+            # Use | as delimiter to avoid issues with /
+            sed -i.bak "s|\"$key\": *\"[^\"]*\"|\"$key\": \"$escaped_value\"|" "$STATE_FILE"
+            rm -f "${STATE_FILE}.bak"
         else
-            # Add key to config object
-            sed -i.bak "s/\"config\": *{/\"config\": {\n    \"$key\": \"$value\",/" "$STATE_FILE"
+            # Add key to config object using temp file for portability
+            local temp_file="${STATE_FILE}.tmp"
+            awk -v key="$key" -v val="$escaped_value" '
+                /"config": *\{/ { print; getline; print "    \"" key "\": \"" val "\","; print; next }
+                { print }
+            ' "$STATE_FILE" > "$temp_file" && mv "$temp_file" "$STATE_FILE"
         fi
-        rm -f "${STATE_FILE}.bak"
     fi
 }
 
