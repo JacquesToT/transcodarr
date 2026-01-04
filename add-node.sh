@@ -184,27 +184,57 @@ step_register_rffmpeg() {
     local weight=2
     local node_count=0
 
-    if docker ps 2>/dev/null | grep -q jellyfin; then
-        # Count existing nodes from rffmpeg status
-        node_count=$(docker exec jellyfin rffmpeg status 2>/dev/null | grep -c "^  [0-9]" || echo "0")
+    # Check if Jellyfin container is running
+    if ! sudo docker ps 2>/dev/null | grep -q jellyfin; then
+        show_warning "Jellyfin container not running"
+        show_info "Start Jellyfin first, then add Mac manually:"
+        echo -e "  ${GREEN}sudo docker exec jellyfin rffmpeg add $MAC_IP --weight $weight${NC}"
+        return
+    fi
+
+    # Check if rffmpeg is available in container
+    local rffmpeg_check
+    rffmpeg_check=$(sudo docker exec jellyfin which rffmpeg 2>/dev/null || echo "")
+
+    if [[ -z "$rffmpeg_check" ]]; then
+        show_warning "rffmpeg not found in Jellyfin container"
+        echo ""
+        show_info "Make sure DOCKER_MODS is set in your docker-compose.yml:"
+        echo -e "  ${CYAN}environment:${NC}"
+        echo -e "    ${GREEN}- DOCKER_MODS=linuxserver/mods:jellyfin-rffmpeg${NC}"
+        echo ""
+        show_info "Then restart: sudo docker-compose up -d --force-recreate"
+        echo ""
+        show_info "After that, add Mac manually:"
+        echo -e "  ${GREEN}sudo docker exec jellyfin rffmpeg add $MAC_IP --weight $weight${NC}"
+        return
+    fi
+
+    # Count existing nodes from rffmpeg status
+    local rffmpeg_output
+    rffmpeg_output=$(sudo docker exec jellyfin rffmpeg status 2>/dev/null || echo "")
+
+    if [[ -n "$rffmpeg_output" ]]; then
+        # Count lines that look like host entries (IP addresses)
+        node_count=$(echo "$rffmpeg_output" | grep -cE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" || echo "0")
         weight=$((2 + node_count))
+    fi
 
-        show_info "Found $node_count existing node(s), using weight $weight for new node"
+    show_info "Found $node_count existing node(s), using weight $weight for new node"
 
-        if ask_confirm "Add Mac to rffmpeg now?"; then
-            if docker exec jellyfin rffmpeg add "$MAC_IP" --weight "$weight" 2>/dev/null; then
-                show_result true "Mac added to rffmpeg with weight $weight"
-                echo ""
-                docker exec jellyfin rffmpeg status 2>/dev/null || true
-            else
-                show_warning "Could not add Mac - try manually"
-                echo ""
-                show_info "Run: docker exec jellyfin rffmpeg add $MAC_IP --weight $weight"
-            fi
+    if ask_confirm "Add Mac to rffmpeg now?"; then
+        if sudo docker exec jellyfin rffmpeg add "$MAC_IP" --weight "$weight" 2>/dev/null; then
+            show_result true "Mac added to rffmpeg with weight $weight"
+            echo ""
+            sudo docker exec jellyfin rffmpeg status 2>/dev/null || true
+        else
+            show_warning "Could not add Mac - try manually"
+            echo ""
+            show_info "Run: sudo docker exec jellyfin rffmpeg add $MAC_IP --weight $weight"
         fi
     else
-        show_info "Add Mac to rffmpeg with:"
-        echo -e "  ${GREEN}docker exec jellyfin rffmpeg add $MAC_IP --weight $weight${NC}"
+        show_info "Add Mac manually with:"
+        echo -e "  ${GREEN}sudo docker exec jellyfin rffmpeg add $MAC_IP --weight $weight${NC}"
     fi
 }
 
