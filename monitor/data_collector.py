@@ -86,11 +86,17 @@ class DataCollector:
         return self._data
 
     async def collect_all(self) -> CollectedData:
-        """Collect all data concurrently."""
+        """Collect all data, ensuring SSH check completes before SSH-dependent tasks."""
+        # Phase 1: Check connections first (SSH must complete before rffmpeg checks)
         await asyncio.gather(
             self.check_ssh_connection(),
             self.check_nfs_mounts(),
             self.get_local_ffmpeg_processes(),
+            return_exceptions=True
+        )
+
+        # Phase 2: SSH-dependent tasks (only run after SSH status is known)
+        await asyncio.gather(
             self.get_rffmpeg_status(),
             self.get_rffmpeg_logs(),
             return_exceptions=True

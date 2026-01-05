@@ -25,7 +25,7 @@ class TranscodePanel(Static):
         padding: 0 0 1 0;
     }
 
-    TranscodePanel #no-transcodes {
+    TranscodePanel .no-transcodes {
         color: $text-muted;
         text-style: italic;
     }
@@ -67,9 +67,11 @@ class TranscodePanel(Static):
         container.remove_children()
 
         if not jobs:
+            # Don't use a fixed ID - IDs must be unique and remove_children()
+            # is async, which can cause "widget already exists" errors
             container.mount(Static(
                 "[dim]No active transcodes[/dim]",
-                id="no-transcodes"
+                classes="no-transcodes"
             ))
             return
 
