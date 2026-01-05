@@ -82,8 +82,15 @@ class TranscodarrConfig:
         """Get the Jellyfin base URL."""
         return f"http://{self.nas_ip}:{self.jellyfin_port}"
 
-    def get_ssh_command(self, command: str) -> list[str]:
-        """Build SSH command to run on NAS."""
+    def get_ssh_command(self, command: str, use_control_master: bool = True) -> list[str]:
+        """Build SSH command to run on NAS.
+
+        Args:
+            command: The command to run on the NAS
+            use_control_master: If True, use ControlMaster for connection reuse.
+                               This allows the initial password auth to be reused
+                               by subsequent connections without re-prompting.
+        """
         ssh_cmd = ["ssh"]
 
         # Add timeout
@@ -93,6 +100,15 @@ class TranscodarrConfig:
         ssh_cmd.extend(["-o", "StrictHostKeyChecking=no"])
         ssh_cmd.extend(["-o", "UserKnownHostsFile=/dev/null"])
         ssh_cmd.extend(["-o", "LogLevel=ERROR"])
+
+        # Use ControlMaster for connection reuse
+        # This allows the initial interactive password auth to be reused
+        # by subsequent async connections without re-prompting
+        if use_control_master:
+            control_path = f"/tmp/ssh-transcodarr-{self.nas_user}@{self.nas_ip}"
+            ssh_cmd.extend(["-o", f"ControlPath={control_path}"])
+            ssh_cmd.extend(["-o", "ControlMaster=auto"])
+            ssh_cmd.extend(["-o", "ControlPersist=600"])  # Keep alive 10 minutes
 
         # Add key if available
         if self.ssh_key_path:
