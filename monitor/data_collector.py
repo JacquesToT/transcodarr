@@ -61,6 +61,9 @@ class SystemStatus:
     nfs_cache_error: str = ""
     jellyfin_error: str = ""
 
+    # Mode indicator
+    is_synology: bool = False
+
 
 @dataclass
 class CollectedData:
@@ -89,6 +92,7 @@ class DataCollector:
         """Collect all data, ensuring connection check completes before dependent tasks."""
         if self.config.is_synology:
             # Local Synology mode: No SSH needed, docker exec directly
+            self._data.status.is_synology = True
             self._data.status.ssh_status = ConnectionStatus.CONNECTED
             self._data.status.ssh_error = ""
 
@@ -122,22 +126,46 @@ class DataCollector:
         return self._data
 
     async def check_local_paths(self) -> None:
-        """Check if local Synology paths exist (for Synology mode)."""
-        from pathlib import Path
+        """Check paths inside Jellyfin container (for Synology mode).
 
-        # Check media path
-        if Path(self.config.media_path).exists():
-            self._data.status.nfs_media_status = ConnectionStatus.CONNECTED
-        else:
-            self._data.status.nfs_media_status = ConnectionStatus.DISCONNECTED
-            self._data.status.nfs_media_error = f"{self.config.media_path} not found"
+        On Synology, we check inside the container because that's where
+        the paths are mounted, not on the host filesystem.
+        """
+        # Check media path inside container
+        try:
+            cmd = self.config.get_docker_command("test -d /data/media && echo ok")
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+            if b"ok" in stdout:
+                self._data.status.nfs_media_status = ConnectionStatus.CONNECTED
+            else:
+                self._data.status.nfs_media_status = ConnectionStatus.DISCONNECTED
+                self._data.status.nfs_media_error = "/data/media not in container"
+        except Exception:
+            self._data.status.nfs_media_status = ConnectionStatus.ERROR
+            self._data.status.nfs_media_error = "Check failed"
 
-        # Check cache path
-        if Path(self.config.cache_path).exists():
-            self._data.status.nfs_cache_status = ConnectionStatus.CONNECTED
-        else:
-            self._data.status.nfs_cache_status = ConnectionStatus.DISCONNECTED
-            self._data.status.nfs_cache_error = f"{self.config.cache_path} not found"
+        # Check cache path inside container
+        try:
+            cmd = self.config.get_docker_command("test -d /config/cache && echo ok")
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+            if b"ok" in stdout:
+                self._data.status.nfs_cache_status = ConnectionStatus.CONNECTED
+            else:
+                self._data.status.nfs_cache_status = ConnectionStatus.DISCONNECTED
+                self._data.status.nfs_cache_error = "/config/cache not in container"
+        except Exception:
+            self._data.status.nfs_cache_status = ConnectionStatus.ERROR
+            self._data.status.nfs_cache_error = "Check failed"
 
     async def check_ssh_connection(self) -> bool:
         """Check if SSH to NAS is working."""

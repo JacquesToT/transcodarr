@@ -52,11 +52,18 @@ class StatusBar(Static):
 
     def _render_status(self) -> str:
         """Render the status bar content."""
-        ssh = self._format_indicator("SSH", self._status.ssh_status)
-        nfs_media = self._format_indicator("NFS Media", self._status.nfs_media_status)
-        nfs_cache = self._format_indicator("NFS Cache", self._status.nfs_cache_status)
-
-        return f"  {ssh}    {nfs_media}    {nfs_cache}"
+        if self._status.is_synology:
+            # Local Synology mode - show Docker and local paths
+            docker = self._format_indicator("Docker", self._status.ssh_status)
+            media = self._format_indicator("Media", self._status.nfs_media_status)
+            cache = self._format_indicator("Cache", self._status.nfs_cache_status)
+            return f"  [cyan]LOCAL[/cyan]    {docker}    {media}    {cache}"
+        else:
+            # Remote Mac mode - show SSH and NFS mounts
+            ssh = self._format_indicator("SSH", self._status.ssh_status)
+            nfs_media = self._format_indicator("NFS Media", self._status.nfs_media_status)
+            nfs_cache = self._format_indicator("NFS Cache", self._status.nfs_cache_status)
+            return f"  {ssh}    {nfs_media}    {nfs_cache}"
 
     def _format_indicator(self, label: str, status: ConnectionStatus) -> str:
         """Format a single status indicator."""
