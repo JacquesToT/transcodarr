@@ -806,3 +806,146 @@ remote_verify_nfs() {
         return 0
     fi
 }
+
+# ============================================================================
+# REMOTE UNINSTALL
+# ============================================================================
+
+# Uninstall Transcodarr components from Mac via SSH
+# Arguments:
+#   $1 - mac_user
+#   $2 - mac_ip
+#   $3 - key_path
+#   $4 - components (space-separated list of: launchdaemons mount_scripts synthetic ffmpeg energy ssh_key)
+# Returns:
+#   0 - success
+#   1 - failure
+#   2 - reboot required (synthetic links removed)
+remote_uninstall_components() {
+    local mac_user="$1"
+    local mac_ip="$2"
+    local key_path="$3"
+    shift 3
+    local components="$*"
+
+    local needs_reboot=false
+    local uninstall_script=""
+
+    # Build uninstall script based on selected components
+    for component in $components; do
+        case "$component" in
+            launchdaemons)
+                uninstall_script+="
+# Unload and remove LaunchDaemons
+launchctl unload /Library/LaunchDaemons/com.transcodarr.*.plist 2>/dev/null || true
+launchctl unload /Library/LaunchDaemons/com.jellyfin.*.plist 2>/dev/null || true
+rm -f /Library/LaunchDaemons/com.transcodarr.*.plist
+rm -f /Library/LaunchDaemons/com.jellyfin.*.plist
+echo 'REMOVED: LaunchDaemons'
+"
+                ;;
+            mount_scripts)
+                uninstall_script+="
+# Unmount NFS shares
+umount /data/media 2>/dev/null || true
+umount /Users/Shared/jellyfin-cache 2>/dev/null || true
+# Remove mount scripts
+rm -f /usr/local/bin/mount-nfs-media.sh
+rm -f /usr/local/bin/mount-synology-cache.sh
+rm -f /usr/local/bin/nfs-watchdog.sh
+# Remove logs
+rm -f /var/log/mount-nfs-media.log
+rm -f /var/log/mount-synology-cache.log
+rm -f /var/log/nfs-watchdog.log
+echo 'REMOVED: Mount scripts'
+"
+                ;;
+            synthetic)
+                uninstall_script+="
+# Remove synthetic.conf (requires reboot)
+rm -f /etc/synthetic.conf
+echo 'REMOVED: Synthetic links (reboot required)'
+"
+                needs_reboot=true
+                ;;
+            ffmpeg)
+                # FFmpeg removal runs as user, not root
+                uninstall_script+="
+echo 'REMOVED: FFmpeg (manual step needed)'
+"
+                ;;
+            energy)
+                uninstall_script+="
+# Reset energy settings to defaults
+pmset -a sleep 1 displaysleep 10 disksleep 10 powernap 1
+echo 'REMOVED: Energy settings (sleep re-enabled)'
+"
+                ;;
+            ssh_key)
+                # SSH key removal runs as user, not root - handled separately
+                uninstall_script+="
+echo 'REMOVED: SSH key (manual step needed)'
+"
+                ;;
+        esac
+    done
+
+    if [[ -z "$uninstall_script" ]]; then
+        show_warning "No components selected for removal"
+        return 0
+    fi
+
+    show_info "Removing components from Mac..."
+    echo ""
+    show_warning ">>> Enter your MAC password when prompted <<<"
+    echo ""
+
+    # Execute sudo parts
+    local result
+    result=$(ssh -tt \
+        -o ConnectTimeout=30 \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -i "$key_path" \
+        "${mac_user}@${mac_ip}" "sudo bash -s" <<< "$uninstall_script" 2>&1)
+
+    # Show results
+    echo "$result" | grep "^REMOVED:" | while read -r line; do
+        show_result true "${line#REMOVED: }"
+    done
+
+    # Handle FFmpeg removal (as user via brew)
+    if echo "$components" | grep -q "ffmpeg"; then
+        show_info "Removing FFmpeg via Homebrew..."
+        ssh_exec "$mac_user" "$mac_ip" "$key_path" '
+            if [[ -f /opt/homebrew/bin/brew ]]; then
+                eval "$(/opt/homebrew/bin/brew shellenv)"
+            elif [[ -f /usr/local/bin/brew ]]; then
+                eval "$(/usr/local/bin/brew shellenv)"
+            fi
+            brew uninstall homebrew-ffmpeg/ffmpeg/ffmpeg 2>/dev/null || brew uninstall ffmpeg 2>/dev/null || true
+            brew untap homebrew-ffmpeg/ffmpeg 2>/dev/null || true
+        ' 2>/dev/null
+        show_result true "FFmpeg removed"
+    fi
+
+    # Handle SSH key removal (as user)
+    if echo "$components" | grep -q "ssh_key"; then
+        show_info "Removing SSH key..."
+        ssh_exec "$mac_user" "$mac_ip" "$key_path" \
+            "sed -i '' '/transcodarr/d' ~/.ssh/authorized_keys 2>/dev/null || true"
+        show_result true "SSH key removed"
+    fi
+
+    # Handle Transcodarr state directory
+    ssh_exec "$mac_user" "$mac_ip" "$key_path" \
+        "rm -rf ~/.transcodarr 2>/dev/null || true"
+
+    if $needs_reboot; then
+        echo ""
+        show_warning "Mac needs to reboot for synthetic links to be fully removed"
+        return 2
+    fi
+
+    return 0
+}

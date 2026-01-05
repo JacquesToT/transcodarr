@@ -573,6 +573,295 @@ wizard_mac() {
 }
 
 # ============================================================================
+# NODE MANAGEMENT FUNCTIONS
+# ============================================================================
+
+# Get list of registered nodes from rffmpeg
+get_registered_nodes() {
+    local status
+    status=$(sudo docker exec jellyfin rffmpeg status 2>/dev/null || echo "")
+    if [[ -z "$status" ]]; then
+        return 1
+    fi
+    # Extract IP addresses from rffmpeg status output
+    echo "$status" | grep -oE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | sort -u
+}
+
+# Shared weight selection menu (used by install, add-node, and change-weight)
+select_weight() {
+    echo ""
+    echo -e "${CYAN}Weight determines how many transcoding jobs this Mac gets:${NC}"
+    echo -e "  • Equal weight = equal share of jobs"
+    echo -e "  • Higher weight = more jobs (e.g., weight 4 gets 2x more than weight 2)"
+    echo -e "  • Use higher weight for faster Macs"
+    echo ""
+
+    local weight_choice
+    local weight=2
+    weight_choice=$(gum choose \
+        "2 - Equal share (recommended for similar Macs)" \
+        "3 - Slightly more jobs" \
+        "4 - Double the jobs (for faster Macs)" \
+        "Custom - Enter your own value")
+
+    case "$weight_choice" in
+        "2 -"*) weight=2 ;;
+        "3 -"*) weight=3 ;;
+        "4 -"*) weight=4 ;;
+        "Custom"*)
+            weight=$(gum input --placeholder "Enter weight (1-10)" --value "2")
+            if [[ ! "$weight" =~ ^[0-9]+$ ]] || [[ "$weight" -lt 1 ]] || [[ "$weight" -gt 10 ]]; then
+                show_warning "Invalid weight, using default (2)"
+                weight=2
+            fi
+            ;;
+        *) weight=2 ;;
+    esac
+
+    echo "$weight"
+}
+
+# Menu: Change node weight
+menu_change_weight() {
+    echo ""
+    show_info "Change Node Weight"
+    echo ""
+
+    # Check if Jellyfin container is running
+    if ! sudo docker ps 2>/dev/null | grep -q jellyfin; then
+        show_error "Jellyfin container not running"
+        show_info "Start the container first, then try again"
+        wait_for_user "Press Enter to return to menu"
+        return 1
+    fi
+
+    # Get registered nodes
+    local nodes
+    nodes=$(get_registered_nodes)
+
+    if [[ -z "$nodes" ]]; then
+        show_warning "No nodes registered with rffmpeg"
+        show_info "Use 'Add a new Mac node' to register a Mac first"
+        wait_for_user "Press Enter to return to menu"
+        return 0
+    fi
+
+    # Let user select a node
+    echo "Select node to update:"
+    local selected_node
+    selected_node=$(echo "$nodes" | gum choose)
+
+    if [[ -z "$selected_node" ]]; then
+        return 0
+    fi
+
+    echo ""
+    show_info "Selected: $selected_node"
+
+    # Select new weight
+    local new_weight
+    new_weight=$(select_weight)
+
+    echo ""
+    show_warning ">>> Enter your SYNOLOGY password when prompted <<<"
+    echo ""
+
+    # Remove and re-add with new weight
+    if sudo docker exec jellyfin rffmpeg remove "$selected_node" 2>/dev/null; then
+        if sudo docker exec jellyfin rffmpeg add "$selected_node" --weight "$new_weight" 2>/dev/null; then
+            show_result true "Weight updated to $new_weight for $selected_node"
+            echo ""
+            sudo docker exec jellyfin rffmpeg status 2>/dev/null || true
+        else
+            show_error "Failed to re-add node"
+            show_info "Try manually: sudo docker exec jellyfin rffmpeg add $selected_node --weight $new_weight"
+        fi
+    else
+        show_error "Failed to remove node for update"
+    fi
+
+    echo ""
+    wait_for_user "Press Enter to return to menu"
+}
+
+# Menu: Remove node
+menu_remove_node() {
+    echo ""
+    show_info "Remove Node"
+    echo ""
+
+    # Check if Jellyfin container is running
+    if ! sudo docker ps 2>/dev/null | grep -q jellyfin; then
+        show_error "Jellyfin container not running"
+        show_info "Start the container first, then try again"
+        wait_for_user "Press Enter to return to menu"
+        return 1
+    fi
+
+    # Get registered nodes
+    local nodes
+    nodes=$(get_registered_nodes)
+
+    if [[ -z "$nodes" ]]; then
+        show_warning "No nodes registered with rffmpeg"
+        wait_for_user "Press Enter to return to menu"
+        return 0
+    fi
+
+    # Let user select a node
+    echo "Select node to remove:"
+    local selected_node
+    selected_node=$(echo "$nodes" | gum choose)
+
+    if [[ -z "$selected_node" ]]; then
+        return 0
+    fi
+
+    echo ""
+    if ! ask_confirm "Remove $selected_node from rffmpeg?"; then
+        return 0
+    fi
+
+    echo ""
+    show_warning ">>> Enter your SYNOLOGY password when prompted <<<"
+    echo ""
+
+    # Remove from rffmpeg
+    if sudo docker exec jellyfin rffmpeg remove "$selected_node" 2>/dev/null; then
+        show_result true "Node $selected_node removed from rffmpeg"
+    else
+        show_error "Failed to remove node from rffmpeg"
+        wait_for_user "Press Enter to return to menu"
+        return 1
+    fi
+
+    echo ""
+
+    # Offer Mac cleanup
+    if ask_confirm "Also uninstall Transcodarr from this Mac?"; then
+        menu_remote_uninstall "$selected_node"
+    fi
+
+    echo ""
+    wait_for_user "Press Enter to return to menu"
+}
+
+# Menu: Remote uninstall components from Mac
+menu_remote_uninstall() {
+    local mac_ip="$1"
+
+    echo ""
+    show_info "Select components to remove from Mac $mac_ip"
+    echo ""
+    show_info "Use Space to select, Enter to confirm"
+    echo ""
+
+    # Multi-select components
+    local selected
+    selected=$(gum choose --no-limit \
+        "LaunchDaemons (NFS auto-mounts)" \
+        "Mount scripts (/usr/local/bin/mount-*.sh)" \
+        "Synthetic links (/data, /config) - requires reboot" \
+        "FFmpeg" \
+        "Energy settings (re-enable sleep)" \
+        "SSH key (revoke Transcodarr access)")
+
+    if [[ -z "$selected" ]]; then
+        show_info "No components selected"
+        return 0
+    fi
+
+    # Convert selections to component names
+    local components=""
+    echo "$selected" | while read -r line; do
+        case "$line" in
+            "LaunchDaemons"*) components+="launchdaemons " ;;
+            "Mount scripts"*) components+="mount_scripts " ;;
+            "Synthetic links"*) components+="synthetic " ;;
+            "FFmpeg"*) components+="ffmpeg " ;;
+            "Energy settings"*) components+="energy " ;;
+            "SSH key"*) components+="ssh_key " ;;
+        esac
+    done
+
+    # Build components string properly
+    components=""
+    while IFS= read -r line; do
+        case "$line" in
+            "LaunchDaemons"*) components+="launchdaemons " ;;
+            "Mount scripts"*) components+="mount_scripts " ;;
+            "Synthetic links"*) components+="synthetic " ;;
+            "FFmpeg"*) components+="ffmpeg " ;;
+            "Energy settings"*) components+="energy " ;;
+            "SSH key"*) components+="ssh_key " ;;
+        esac
+    done <<< "$selected"
+
+    if [[ -z "$components" ]]; then
+        show_info "No components selected"
+        return 0
+    fi
+
+    # Get SSH key path and username
+    local key_path="${OUTPUT_DIR}/rffmpeg/.ssh/id_rsa"
+    local mac_user
+    mac_user=$(get_config "mac_user")
+
+    if [[ -z "$mac_user" ]]; then
+        show_warning "Mac username not found in configuration"
+        mac_user=$(ask_input "Mac username" "$(whoami)")
+    fi
+
+    if [[ ! -f "$key_path" ]]; then
+        show_error "SSH key not found"
+        show_info "Cannot connect to Mac without SSH key"
+        return 1
+    fi
+
+    # Check Mac is reachable
+    if ! test_mac_reachable "$mac_ip"; then
+        show_error "Mac at $mac_ip is not reachable"
+        return 1
+    fi
+
+    # Run uninstall
+    local result
+    remote_uninstall_components "$mac_user" "$mac_ip" "$key_path" $components
+    result=$?
+
+    if [[ $result -eq 2 ]]; then
+        echo ""
+        if ask_confirm "Reboot Mac now to complete removal?"; then
+            show_info "Sending reboot command..."
+            ssh_exec_sudo "$mac_user" "$mac_ip" "$key_path" "reboot" 2>/dev/null || true
+            show_info "Mac is rebooting"
+        fi
+    fi
+
+    return 0
+}
+
+# Menu: Show documentation
+menu_documentation() {
+    local url="https://github.com/JacquesToT/Transcodarr"
+
+    echo ""
+    gum style --border double --padding "1 2" --border-foreground 39 \
+        "📖 Transcodarr Documentation" \
+        "" \
+        "$url" \
+        "" \
+        "Topics:" \
+        "• Prerequisites & Setup" \
+        "• NFS Configuration" \
+        "• Troubleshooting" \
+        "• rffmpeg Commands"
+    echo ""
+
+    wait_for_user "Press Enter to return to menu"
+}
+
+# ============================================================================
 # MAIN MENU
 # ============================================================================
 
@@ -588,6 +877,15 @@ show_main_menu() {
     fi
 
     menu_options+=("➕ Add a new Mac node")
+
+    # Node management options (only if configured)
+    if [[ "$install_status" != "first_time" ]]; then
+        menu_options+=("⚖️  Change Node Weight")
+        menu_options+=("➖ Remove Node")
+    fi
+
+    # Documentation always available
+    menu_options+=("📖 Documentation")
 
     # Only show Monitor if configured
     if [[ "$install_status" == "configured" ]] && [[ -f "$SCRIPT_DIR/monitor.sh" ]]; then
@@ -684,6 +982,15 @@ main_menu_loop() {
             "➕ Add a new Mac node")
                 echo ""
                 "$SCRIPT_DIR/add-node.sh"
+                ;;
+            "⚖️  Change Node Weight")
+                menu_change_weight
+                ;;
+            "➖ Remove Node")
+                menu_remove_node
+                ;;
+            "📖 Documentation")
+                menu_documentation
                 ;;
             "📊 Monitor")
                 echo ""
