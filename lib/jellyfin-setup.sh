@@ -41,8 +41,9 @@ generate_ssh_key() {
     mark_step_complete "ssh_key_generated"
 }
 
-# Ensure SSH key exists in Jellyfin container
+# Ensure SSH key exists in Jellyfin container with correct permissions
 # This function checks the container and creates/copies keys if needed
+# Also fixes permissions if key exists but has wrong ownership
 ensure_container_ssh_key() {
     local jellyfin_config="${1:-$(get_config jellyfin_config)}"
 
@@ -55,10 +56,26 @@ ensure_container_ssh_key() {
     local host_key_file="${host_key_dir}/id_rsa"
     local output_key="${OUTPUT_DIR}/rffmpeg/.ssh/id_rsa"
 
+    # Get the actual abc user uid from the container
+    local abc_uid abc_gid
+    abc_uid=$(sudo docker exec jellyfin id -u abc 2>/dev/null || echo "1000")
+    abc_gid=$(sudo docker exec jellyfin id -g abc 2>/dev/null || echo "1000")
+
     # Check if key exists in container
     if sudo docker exec jellyfin test -f "$container_key_path" 2>/dev/null; then
-        show_skip "SSH key already exists in Jellyfin container"
-        return 0
+        # Key exists - verify abc user can read it
+        if sudo docker exec -u abc jellyfin test -r "$container_key_path" 2>/dev/null; then
+            show_skip "SSH key already exists with correct permissions"
+            return 0
+        else
+            # Fix permissions
+            show_info "Fixing SSH key permissions..."
+            sudo chown -R "${abc_uid}:${abc_gid}" "${jellyfin_config}/rffmpeg"
+            sudo chmod 600 "$host_key_file"
+            sudo chmod 644 "${host_key_file}.pub" 2>/dev/null || true
+            show_result true "SSH key permissions fixed"
+            return 0
+        fi
     fi
 
     show_info "Setting up SSH key for rffmpeg..."
@@ -78,12 +95,7 @@ ensure_container_ssh_key() {
     sudo cp "$output_key" "$host_key_file"
     sudo cp "${output_key}.pub" "${host_key_file}.pub"
 
-    # Get the actual abc user uid from the container (not hardcoded 911)
-    local abc_uid
-    abc_uid=$(sudo docker exec jellyfin id -u abc 2>/dev/null || echo "1000")
-    local abc_gid
-    abc_gid=$(sudo docker exec jellyfin id -g abc 2>/dev/null || echo "1000")
-
+    # Set correct ownership (abc_uid/abc_gid fetched at top of function)
     sudo chown -R "${abc_uid}:${abc_gid}" "${jellyfin_config}/rffmpeg"
     sudo chmod 600 "$host_key_file"
     sudo chmod 644 "${host_key_file}.pub"
@@ -147,7 +159,9 @@ test_container_ssh_to_mac() {
     local mac_user="$1"
     local mac_ip="$2"
 
-    if sudo docker exec jellyfin ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    # IMPORTANT: Run as abc user (not root) because that's how rffmpeg runs
+    # This catches permission issues with the SSH key
+    if sudo docker exec -u abc jellyfin ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
         -o BatchMode=yes -o ConnectTimeout=5 \
         -i /config/rffmpeg/.ssh/id_rsa \
         "${mac_user}@${mac_ip}" "echo ok" 2>/dev/null | grep -q "ok"; then
