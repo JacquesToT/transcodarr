@@ -409,6 +409,43 @@ show_ssh_password_prompt() {
 }
 
 # ============================================================================
+# EMBEDDED INSTRUCTIONS - NAS SSH PASSWORD PROMPT (for monitor)
+# ============================================================================
+
+show_nas_ssh_password_prompt() {
+    local nas_user="${1:-<NAS_USER>}"
+    local nas_ip="${2:-<NAS_IP>}"
+
+    if command -v gum &> /dev/null; then
+        gum style \
+            --foreground 226 \
+            --border-foreground 226 \
+            --border normal \
+            --padding "1 2" \
+            --width 65 \
+            "NAS/Synology SSH Authentication"
+    else
+        echo -e "${YELLOW}╔══════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}║  NAS/Synology SSH Authentication                             ║${NC}"
+        echo -e "${YELLOW}╚══════════════════════════════════════════════════════════════╝${NC}"
+    fi
+    echo ""
+
+    echo -e "  ${YELLOW}You are being asked for a password.${NC}"
+    echo ""
+    echo -e "  ${GREEN}Enter your SYNOLOGY/NAS password${NC}"
+    echo -e "  (the one you use to log into your NAS at ${CYAN}$nas_ip${NC})"
+    echo ""
+    echo -e "  User: ${CYAN}$nas_user${NC}"
+    echo ""
+    echo -e "  ${RED}This is NOT your Mac password!${NC}"
+    echo ""
+    echo "  Tip: Set up SSH key auth to avoid this prompt:"
+    echo -e "    ${GREEN}ssh-copy-id $nas_user@$nas_ip${NC}"
+    echo ""
+}
+
+# ============================================================================
 # EMBEDDED INSTRUCTIONS - REBOOT WAIT (for remote installer)
 # ============================================================================
 

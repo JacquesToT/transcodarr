@@ -98,6 +98,7 @@ wizard_synology() {
     local mac_ip=""
     local mac_user=""
     local nas_ip=""
+    local nas_user=""
     local media_path=""
     local cache_path=""
     local jellyfin_config=""
@@ -112,6 +113,7 @@ wizard_synology() {
         mac_ip=$(get_config "mac_ip")
         mac_user=$(get_config "mac_user")
         nas_ip=$(get_config "nas_ip")
+        nas_user=$(get_config "nas_user")
         media_path=$(get_config "media_path")
         cache_path=$(get_config "cache_path")
         jellyfin_config=$(get_config "jellyfin_config")
@@ -196,6 +198,10 @@ wizard_synology() {
     [[ -z "$detected_nas_ip" ]] && detected_nas_ip="192.168.1.100"
     nas_ip=$(ask_input "NAS IP address" "$detected_nas_ip")
 
+    # Get NAS username (for monitor SSH access)
+    nas_user=$(ask_input "NAS SSH username (for monitoring)" "$(whoami)")
+    [[ -z "$nas_user" ]] && nas_user="$(whoami)"
+
     # Get media path (for NFS mount)
     media_path=$(ask_input "Media folder on NAS (NFS export)" "/volume1/data/media")
 
@@ -210,7 +216,7 @@ wizard_synology() {
     echo ""
     show_info "Configuration summary:"
     echo "  Mac:           $mac_user@$mac_ip"
-    echo "  NAS:           $nas_ip"
+    echo "  NAS:           $nas_user@$nas_ip"
     echo "  Media path:    $media_path"
     echo "  Jellyfin:      $jellyfin_config"
     echo "  Cache:         $cache_path"
@@ -225,6 +231,7 @@ wizard_synology() {
     set_config "mac_ip" "$mac_ip"
     set_config "mac_user" "$mac_user"
     set_config "nas_ip" "$nas_ip"
+    set_config "nas_user" "$nas_user"
     set_config "media_path" "$media_path"
     set_config "cache_path" "$cache_path"
     set_config "jellyfin_config" "$jellyfin_config"
@@ -573,6 +580,45 @@ wizard_mac() {
 }
 
 # ============================================================================
+# CONFIGURE MONITOR SETTINGS
+# ============================================================================
+
+configure_monitor_settings() {
+    echo ""
+    show_info "Configure Monitor Settings"
+    echo ""
+
+    local current_nas_ip current_nas_user
+    current_nas_ip=$(get_config "nas_ip")
+    current_nas_user=$(get_config "nas_user")
+
+    echo "Current configuration:"
+    echo "  NAS IP:   ${current_nas_ip:-Not set}"
+    echo "  NAS User: ${current_nas_user:-Not set}"
+    echo ""
+
+    if ask_confirm "Update NAS SSH settings?"; then
+        local new_nas_ip new_nas_user
+
+        new_nas_ip=$(ask_input "NAS IP address" "$current_nas_ip")
+        new_nas_user=$(ask_input "NAS SSH username" "${current_nas_user:-$(whoami)}")
+
+        set_config "nas_ip" "$new_nas_ip"
+        set_config "nas_user" "$new_nas_user"
+
+        echo ""
+        show_result true "Monitor settings updated"
+        echo ""
+        echo "New configuration:"
+        echo "  NAS IP:   $new_nas_ip"
+        echo "  NAS User: $new_nas_user"
+    fi
+
+    echo ""
+    wait_for_user "Press Enter to return to menu"
+}
+
+# ============================================================================
 # NODE MANAGEMENT FUNCTIONS
 # ============================================================================
 
@@ -888,9 +934,10 @@ show_main_menu() {
     # Documentation always available
     menu_options+=("📖 Documentation")
 
-    # Only show Monitor if configured
+    # Only show Monitor and Configure if configured
     if [[ "$install_status" == "configured" ]] && [[ -f "$SCRIPT_DIR/monitor.sh" ]]; then
         menu_options+=("📊 Monitor")
+        menu_options+=("⚙️  Configure Monitor")
     fi
 
     menu_options+=("❌ Exit")
@@ -997,6 +1044,9 @@ main_menu_loop() {
                 echo ""
                 show_info "Starting Transcodarr Monitor..."
                 exec "$SCRIPT_DIR/monitor.sh"
+                ;;
+            "⚙️  Configure Monitor")
+                configure_monitor_settings
                 ;;
             "❌ Exit"|"")
                 echo ""

@@ -121,7 +121,16 @@ class DataCollector:
                 return True
             else:
                 self._data.status.ssh_status = ConnectionStatus.ERROR
-                self._data.status.ssh_error = stderr.decode().strip()[:100]
+                error_msg = stderr.decode().strip()
+                # Make the error more user-friendly
+                if "Permission denied" in error_msg or "password" in error_msg.lower():
+                    self._data.status.ssh_error = f"Auth failed for {self.config.nas_user}@{self.config.nas_ip}"
+                elif "Connection refused" in error_msg:
+                    self._data.status.ssh_error = f"SSH refused at {self.config.nas_ip}:22"
+                elif "No route to host" in error_msg or "Host unreachable" in error_msg:
+                    self._data.status.ssh_error = f"Cannot reach {self.config.nas_ip}"
+                else:
+                    self._data.status.ssh_error = error_msg[:100]
                 return False
 
         except asyncio.TimeoutError:

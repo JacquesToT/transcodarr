@@ -16,7 +16,7 @@ class TranscodarrConfig:
 
     # NAS/Synology settings
     nas_ip: str = "192.168.1.100"
-    nas_user: str = "root"
+    nas_user: str = ""  # Loaded from config, with fallbacks
 
     # Jellyfin settings
     jellyfin_port: int = 8096
@@ -50,11 +50,11 @@ class TranscodarrConfig:
 
                 if "nas_ip" in cfg:
                     config.nas_ip = cfg["nas_ip"]
-                if "nas_user" in cfg:
+                if "nas_user" in cfg and cfg["nas_user"]:
                     config.nas_user = cfg["nas_user"]
-                if "mac_user" in cfg:
-                    # Mac user might be used for SSH
-                    pass
+                elif "mac_user" in cfg and cfg["mac_user"]:
+                    # Fallback: use mac_user for NAS SSH (common on home setups)
+                    config.nas_user = cfg["mac_user"]
                 if "media_path" in cfg:
                     config.media_path = cfg["media_path"]
                 if "cache_path" in cfg:
@@ -69,6 +69,11 @@ class TranscodarrConfig:
         ssh_key = Path.home() / ".ssh" / "id_rsa"
         if ssh_key.exists():
             config.ssh_key_path = str(ssh_key)
+
+        # Ensure nas_user has a value (fallback to current user)
+        if not config.nas_user:
+            import getpass
+            config.nas_user = getpass.getuser()
 
         return config
 
