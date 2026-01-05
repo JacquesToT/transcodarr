@@ -77,7 +77,14 @@ ensure_container_ssh_key() {
     sudo mkdir -p "$host_key_dir"
     sudo cp "$output_key" "$host_key_file"
     sudo cp "${output_key}.pub" "${host_key_file}.pub"
-    sudo chown -R 911:911 "${jellyfin_config}/rffmpeg"
+
+    # Get the actual abc user uid from the container (not hardcoded 911)
+    local abc_uid
+    abc_uid=$(sudo docker exec jellyfin id -u abc 2>/dev/null || echo "1000")
+    local abc_gid
+    abc_gid=$(sudo docker exec jellyfin id -g abc 2>/dev/null || echo "1000")
+
+    sudo chown -R "${abc_uid}:${abc_gid}" "${jellyfin_config}/rffmpeg"
     sudo chmod 600 "$host_key_file"
     sudo chmod 644 "${host_key_file}.pub"
 
