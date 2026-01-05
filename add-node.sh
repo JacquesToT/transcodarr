@@ -216,7 +216,10 @@ step_register_rffmpeg() {
 
     if [[ -n "$rffmpeg_output" ]]; then
         # Count lines that look like host entries (IP addresses)
-        node_count=$(echo "$rffmpeg_output" | grep -cE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" || echo "0")
+        # Use tr to remove any whitespace and ensure clean number
+        node_count=$(echo "$rffmpeg_output" | grep -cE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" 2>/dev/null | tr -d '[:space:]' || true)
+        # Default to 0 if empty or not a number
+        [[ -z "$node_count" || ! "$node_count" =~ ^[0-9]+$ ]] && node_count=0
         weight=$((2 + node_count))
     fi
 
