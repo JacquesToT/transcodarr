@@ -392,13 +392,44 @@ wizard_synology() {
         sleep 10
 
         echo ""
+        # Explain weight system
+        echo -e "${CYAN}Weight determines how many transcoding jobs this Mac gets:${NC}"
+        echo -e "  • Equal weight = equal share of jobs"
+        echo -e "  • Higher weight = more jobs (e.g., weight 4 gets 2x more than weight 2)"
+        echo -e "  • Use higher weight for faster Macs"
+        echo ""
+
+        # Let user choose weight
+        local weight_choice
+        local weight=2
+        weight_choice=$(gum choose \
+            "2 - Equal share (recommended for similar Macs)" \
+            "3 - Slightly more jobs" \
+            "4 - Double the jobs (for faster Macs)" \
+            "Custom - Enter your own value")
+
+        case "$weight_choice" in
+            "2 -"*) weight=2 ;;
+            "3 -"*) weight=3 ;;
+            "4 -"*) weight=4 ;;
+            "Custom"*)
+                weight=$(gum input --placeholder "Enter weight (1-10)" --value "2")
+                if [[ ! "$weight" =~ ^[0-9]+$ ]] || [[ "$weight" -lt 1 ]] || [[ "$weight" -gt 10 ]]; then
+                    show_warning "Invalid weight, using default (2)"
+                    weight=2
+                fi
+                ;;
+            *) weight=2 ;;
+        esac
+
+        echo ""
         show_warning ">>> Enter your SYNOLOGY password when prompted <<<"
         echo ""
-        show_info "Adding Mac to rffmpeg..."
+        show_info "Adding Mac to rffmpeg with weight $weight..."
 
-        if sudo docker exec jellyfin rffmpeg add "$mac_ip" --weight 2 2>/dev/null; then
+        if sudo docker exec jellyfin rffmpeg add "$mac_ip" --weight "$weight" 2>/dev/null; then
             echo ""
-            show_result true "Mac added to rffmpeg!"
+            show_result true "Mac added to rffmpeg with weight $weight!"
             echo ""
             show_info "Current rffmpeg status:"
             sudo docker exec jellyfin rffmpeg status 2>/dev/null || true
@@ -411,7 +442,7 @@ wizard_synology() {
             echo "  - rffmpeg is still initializing"
             echo ""
             show_info "Try manually after container restart:"
-            echo -e "  ${GREEN}sudo docker exec jellyfin rffmpeg add $mac_ip --weight 2${NC}"
+            echo -e "  ${GREEN}sudo docker exec jellyfin rffmpeg add $mac_ip --weight $weight${NC}"
         fi
     else
         echo ""

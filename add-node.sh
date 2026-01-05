@@ -211,14 +211,45 @@ step_register_rffmpeg() {
 
     if [[ -n "$rffmpeg_output" ]]; then
         # Count lines that look like host entries (IP addresses)
-        # Use tr to remove any whitespace and ensure clean number
         node_count=$(echo "$rffmpeg_output" | grep -cE "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" 2>/dev/null | tr -d '[:space:]' || true)
-        # Default to 0 if empty or not a number
         [[ -z "$node_count" || ! "$node_count" =~ ^[0-9]+$ ]] && node_count=0
-        weight=$((2 + node_count))
     fi
 
-    show_info "Found $node_count existing node(s), using weight $weight for new node"
+    show_info "Found $node_count existing node(s)"
+    echo ""
+
+    # Explain weight system
+    echo -e "${CYAN}Weight determines how many transcoding jobs this Mac gets:${NC}"
+    echo -e "  • Equal weight = equal share of jobs"
+    echo -e "  • Higher weight = more jobs (e.g., weight 4 gets 2x more than weight 2)"
+    echo -e "  • Use higher weight for faster Macs"
+    echo ""
+
+    # Let user choose weight
+    local weight_choice
+    weight_choice=$(gum choose \
+        "2 - Equal share (recommended for similar Macs)" \
+        "3 - Slightly more jobs" \
+        "4 - Double the jobs (for faster Macs)" \
+        "Custom - Enter your own value")
+
+    case "$weight_choice" in
+        "2 -"*) weight=2 ;;
+        "3 -"*) weight=3 ;;
+        "4 -"*) weight=4 ;;
+        "Custom"*)
+            weight=$(gum input --placeholder "Enter weight (1-10)" --value "2")
+            # Validate input
+            if [[ ! "$weight" =~ ^[0-9]+$ ]] || [[ "$weight" -lt 1 ]] || [[ "$weight" -gt 10 ]]; then
+                show_warning "Invalid weight, using default (2)"
+                weight=2
+            fi
+            ;;
+        *) weight=2 ;;
+    esac
+
+    echo ""
+    show_info "Using weight $weight for this Mac"
 
     if ask_confirm "Add Mac to rffmpeg now?"; then
         if sudo docker exec jellyfin rffmpeg add "$MAC_IP" --weight "$weight" 2>/dev/null; then
