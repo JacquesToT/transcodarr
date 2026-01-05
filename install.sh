@@ -392,14 +392,16 @@ wizard_synology() {
         sleep 10
 
         echo ""
+        show_warning ">>> Enter your SYNOLOGY password when prompted <<<"
+        echo ""
         show_info "Adding Mac to rffmpeg..."
 
-        if docker exec jellyfin rffmpeg add "$mac_ip" --weight 2 2>/dev/null; then
+        if sudo docker exec jellyfin rffmpeg add "$mac_ip" --weight 2 2>/dev/null; then
             echo ""
             show_result true "Mac added to rffmpeg!"
             echo ""
             show_info "Current rffmpeg status:"
-            docker exec jellyfin rffmpeg status 2>/dev/null || true
+            sudo docker exec jellyfin rffmpeg status 2>/dev/null || true
         else
             echo ""
             show_error "Could not add Mac to rffmpeg"
@@ -409,14 +411,14 @@ wizard_synology() {
             echo "  - rffmpeg is still initializing"
             echo ""
             show_info "Try manually after container restart:"
-            echo -e "  ${GREEN}docker exec jellyfin rffmpeg add $mac_ip --weight 2${NC}"
+            echo -e "  ${GREEN}sudo docker exec jellyfin rffmpeg add $mac_ip --weight 2${NC}"
         fi
     else
         echo ""
         show_info "After restarting Jellyfin, run:"
         echo ""
-        echo -e "  ${GREEN}docker exec jellyfin rffmpeg add $mac_ip --weight 2${NC}"
-        echo -e "  ${GREEN}docker exec jellyfin rffmpeg status${NC}"
+        echo -e "  ${GREEN}sudo docker exec jellyfin rffmpeg add $mac_ip --weight 2${NC}"
+        echo -e "  ${GREEN}sudo docker exec jellyfin rffmpeg status${NC}"
     fi
 
     echo ""
