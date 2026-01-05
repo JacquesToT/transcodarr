@@ -588,13 +588,14 @@ get_registered_nodes() {
 }
 
 # Shared weight selection menu (used by install, add-node, and change-weight)
+# Returns weight value via stdout - all display text goes to stderr
 select_weight() {
-    echo ""
-    echo -e "${CYAN}Weight determines how many transcoding jobs this Mac gets:${NC}"
-    echo -e "  • Equal weight = equal share of jobs"
-    echo -e "  • Higher weight = more jobs (e.g., weight 4 gets 2x more than weight 2)"
-    echo -e "  • Use higher weight for faster Macs"
-    echo ""
+    echo "" >&2
+    echo -e "${CYAN}Weight determines how many transcoding jobs this Mac gets:${NC}" >&2
+    echo -e "  • Equal weight = equal share of jobs" >&2
+    echo -e "  • Higher weight = more jobs (e.g., weight 4 gets 2x more than weight 2)" >&2
+    echo -e "  • Use higher weight for faster Macs" >&2
+    echo "" >&2
 
     local weight_choice
     local weight=2
@@ -611,7 +612,7 @@ select_weight() {
         "Custom"*)
             weight=$(gum input --placeholder "Enter weight (1-10)" --value "2")
             if [[ ! "$weight" =~ ^[0-9]+$ ]] || [[ "$weight" -lt 1 ]] || [[ "$weight" -gt 10 ]]; then
-                show_warning "Invalid weight, using default (2)"
+                echo -e "${YELLOW}  [!] Invalid weight, using default (2)${NC}" >&2
                 weight=2
             fi
             ;;
@@ -625,6 +626,8 @@ select_weight() {
 menu_change_weight() {
     echo ""
     show_info "Change Node Weight"
+    echo ""
+    show_warning ">>> Enter your SYNOLOGY password when prompted <<<"
     echo ""
 
     # Check if Jellyfin container is running
@@ -663,8 +666,6 @@ menu_change_weight() {
     new_weight=$(select_weight)
 
     echo ""
-    show_warning ">>> Enter your SYNOLOGY password when prompted <<<"
-    echo ""
 
     # Remove and re-add with new weight
     if sudo docker exec jellyfin rffmpeg remove "$selected_node" 2>/dev/null; then
@@ -688,6 +689,8 @@ menu_change_weight() {
 menu_remove_node() {
     echo ""
     show_info "Remove Node"
+    echo ""
+    show_warning ">>> Enter your SYNOLOGY password when prompted <<<"
     echo ""
 
     # Check if Jellyfin container is running
@@ -722,8 +725,6 @@ menu_remove_node() {
         return 0
     fi
 
-    echo ""
-    show_warning ">>> Enter your SYNOLOGY password when prompted <<<"
     echo ""
 
     # Remove from rffmpeg
