@@ -618,6 +618,75 @@ configure_monitor_settings() {
     wait_for_user "Press Enter to return to menu"
 }
 
+# Check and install monitor dependencies
+ensure_monitor_dependencies() {
+    local venv_dir="$SCRIPT_DIR/.venv"
+    local python_cmd=""
+
+    # Find Python 3
+    if command -v python3 &> /dev/null; then
+        python_cmd="python3"
+    elif command -v python &> /dev/null && python --version 2>&1 | grep -q "Python 3"; then
+        python_cmd="python"
+    else
+        show_error "Python 3 is required for the monitor"
+        echo ""
+        echo "Install Python with:"
+        echo "  brew install python3   (macOS)"
+        echo "  apt install python3    (Linux/Synology)"
+        return 1
+    fi
+
+    # Check if textual is already installed in venv
+    if [[ -d "$venv_dir" ]] && "$venv_dir/bin/python" -c "import textual" 2>/dev/null; then
+        return 0  # Already installed
+    fi
+
+    # Dependencies not installed - ask user
+    echo ""
+    show_info "Monitor Dependencies Required"
+    echo ""
+    echo "The Transcodarr Monitor requires Python packages:"
+    echo "  • textual (TUI framework)"
+    echo "  • rich (terminal formatting)"
+    echo ""
+
+    if ! ask_confirm "Install monitor dependencies now?"; then
+        show_warning "Monitor dependencies not installed"
+        return 1
+    fi
+
+    echo ""
+    show_info "Installing monitor dependencies..."
+
+    # Create virtual environment if needed
+    if [[ ! -d "$venv_dir" ]]; then
+        echo "Creating virtual environment..."
+        "$python_cmd" -m venv "$venv_dir"
+    fi
+
+    # Install dependencies
+    echo "Installing packages..."
+    "$venv_dir/bin/pip" install -q --upgrade pip
+    "$venv_dir/bin/pip" install -q -r "$SCRIPT_DIR/monitor/requirements.txt"
+
+    echo ""
+    show_result true "Monitor dependencies installed successfully"
+    return 0
+}
+
+# Start the monitor (with dependency check)
+start_monitor() {
+    if ensure_monitor_dependencies; then
+        echo ""
+        show_info "Starting Transcodarr Monitor..."
+        exec "$SCRIPT_DIR/monitor.sh"
+    else
+        echo ""
+        wait_for_user "Press Enter to return to menu"
+    fi
+}
+
 # ============================================================================
 # NODE MANAGEMENT FUNCTIONS
 # ============================================================================
@@ -1041,9 +1110,7 @@ main_menu_loop() {
                 menu_documentation
                 ;;
             "📊 Monitor")
-                echo ""
-                show_info "Starting Transcodarr Monitor..."
-                exec "$SCRIPT_DIR/monitor.sh"
+                start_monitor
                 ;;
             "⚙️  Configure Monitor")
                 configure_monitor_settings
