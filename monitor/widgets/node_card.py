@@ -99,60 +99,75 @@ class NodeCard(Container):
     def _update_display(self) -> None:
         """Update all display elements."""
         import os
+        import traceback
         debug_file = os.path.expanduser("~/.transcodarr/monitor_debug.log")
-        with open(debug_file, "a") as f:
-            f.write(f"\n--- NodeCard._update_display() for {self.node.ip} ---\n")
 
-        # Header: Node name and status
-        header = self.query_one("#node-header", Static)
-        status_icon = "●" if self.node.is_online else "○"
-        status_color = "green" if self.node.is_online else "red"
+        try:
+            with open(debug_file, "a") as f:
+                f.write(f"\n--- NodeCard._update_display() for {self.node.ip} ---\n")
 
-        if self.node.is_online:
-            header_text = (
-                f"[{status_color}]{status_icon}[/{status_color}] "
-                f"[bold]🖥️ {self.node.hostname}[/bold]"
-            )
-        else:
-            # Escape error message to prevent Rich markup interpretation
-            # Replace [ with \\[ to escape
-            safe_error = self.node.error.replace("[", "\\[").replace("]", "\\]")
-            header_text = (
-                f"[{status_color}]{status_icon}[/{status_color}] "
-                f"[bold dim]🖥️ {self.node.hostname}[/bold dim] "
-                f"[red]({safe_error})[/red]"
-            )
-        header.update(header_text)
+            # Header: Node name and status
+            header = self.query_one("#node-header", Static)
+            status_icon = "●" if self.node.is_online else "○"
+            status_color = "green" if self.node.is_online else "red"
 
-        # Stats: CPU and Memory gauges
-        stats = self.query_one("#node-stats", Static)
-        if self.node.is_online:
-            cpu_bar = self._make_gauge(self.node.cpu_percent, 20)
-            mem_bar = self._make_gauge(self.node.memory_percent, 10)
+            if self.node.is_online:
+                header_text = (
+                    f"[{status_color}]{status_icon}[/{status_color}] "
+                    f"[bold]{self.node.hostname}[/bold]"
+                )
+            else:
+                # Escape error message to prevent Rich markup interpretation
+                safe_error = self.node.error.replace("[", "\\[").replace("]", "\\]")
+                header_text = (
+                    f"[{status_color}]{status_icon}[/{status_color}] "
+                    f"[bold dim]{self.node.hostname}[/bold dim] "
+                    f"[red]({safe_error})[/red]"
+                )
+            header.update(header_text)
 
-            # Use escaped brackets \\[ and \\] for literal display in Rich
-            stats_text = (
-                f"CPU \\[{cpu_bar}\\] {self.node.cpu_percent:5.1f}%    "
-                f"MEM \\[{mem_bar}\\] {self.node.memory_used_gb:.1f}/{self.node.memory_total_gb:.0f}GB    "
-                f"Today: {self.node.transcodes_today} transcodes"
-            )
-        else:
-            stats_text = "[dim]No stats available[/dim]"
-        stats.update(stats_text)
+            with open(debug_file, "a") as f:
+                f.write(f"header_text: {header_text}\n")
 
-        # Jobs
-        jobs_container = self.query_one("#node-jobs", Vertical)
-        jobs_container.remove_children()
+            # Stats: CPU and Memory gauges
+            stats = self.query_one("#node-stats", Static)
+            if self.node.is_online:
+                cpu_bar = self._make_gauge(self.node.cpu_percent, 20)
+                mem_bar = self._make_gauge(self.node.memory_percent, 10)
 
-        if not self.jobs:
-            jobs_container.mount(Static(
-                "[dim italic]No active transcodes[/dim italic]",
-                classes="job-line"
-            ))
-        else:
-            for job in self.jobs:
-                job_widget = self._create_job_widget(job)
-                jobs_container.mount(job_widget)
+                stats_text = (
+                    f"CPU \\[{cpu_bar}\\] {self.node.cpu_percent:5.1f}%    "
+                    f"MEM \\[{mem_bar}\\] {self.node.memory_used_gb:.1f}/{self.node.memory_total_gb:.0f}GB    "
+                    f"Today: {self.node.transcodes_today} transcodes"
+                )
+            else:
+                stats_text = "[dim]No stats available[/dim]"
+            stats.update(stats_text)
+
+            with open(debug_file, "a") as f:
+                f.write(f"stats_text: {stats_text}\n")
+
+            # Jobs
+            jobs_container = self.query_one("#node-jobs", Vertical)
+            jobs_container.remove_children()
+
+            if not self.jobs:
+                jobs_container.mount(Static(
+                    "[dim italic]No active transcodes[/dim italic]",
+                    classes="job-line"
+                ))
+            else:
+                for job in self.jobs:
+                    job_widget = self._create_job_widget(job)
+                    jobs_container.mount(job_widget)
+
+            with open(debug_file, "a") as f:
+                f.write(f"_update_display completed OK\n")
+
+        except Exception as e:
+            with open(debug_file, "a") as f:
+                f.write(f"ERROR in _update_display: {e}\n")
+                f.write(traceback.format_exc())
 
     def _make_gauge(self, percent: float, width: int) -> str:
         """Create a text-based gauge bar."""
