@@ -536,6 +536,9 @@ class DataCollector:
         if not self._data.rffmpeg_hosts:
             return []
 
+        # Clear active transcodes - will be repopulated from each node
+        self._data.active_transcodes = []
+
         # Get mac_user from config (for SSH to Mac nodes)
         mac_user = self._get_mac_user()
 
@@ -700,7 +703,9 @@ class DataCollector:
             elif section == "FFMPEG" and i + 1 < len(sections):
                 content = sections[i + 1]
                 jobs = self._parse_ffmpeg_processes(content, node.ip)
-                node.transcodes_today = len(jobs)  # Count from this node's processes
+                node.transcodes_today = len(jobs)
+                # Add jobs to global list (cleared at start of get_all_node_stats)
+                self._data.active_transcodes.extend(jobs)
 
     def _parse_memory_stats(self, content: str, node: NodeStats) -> None:
         """Parse vm_stat and sysctl output for memory stats."""
