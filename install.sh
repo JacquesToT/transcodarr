@@ -173,14 +173,14 @@ wizard_synology() {
     echo ""
 
     # Get Mac IP
-    mac_ip=$(ask_input "Mac IP address" "192.168.x.x")
+    mac_ip=$(ask_input "Mac IP address" "192.168.")
     if [[ -z "$mac_ip" ]]; then
         show_error "Mac IP is required"
         return 1
     fi
 
     # Get Mac username
-    mac_user=$(ask_input "Mac username" "user_name")
+    mac_user=$(ask_input "Mac username" "")
     if [[ -z "$mac_user" ]]; then
         show_error "Mac username is required"
         return 1
@@ -189,7 +189,7 @@ wizard_synology() {
     # Get NAS IP
     local detected_nas_ip
     detected_nas_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-    [[ -z "$detected_nas_ip" ]] && detected_nas_ip="192.168.x.x"
+    [[ -z "$detected_nas_ip" ]] && detected_nas_ip="192.168."
     nas_ip=$(ask_input "NAS IP address" "$detected_nas_ip")
 
     # Get NAS username (for monitor SSH access)
@@ -526,7 +526,7 @@ wizard_mac() {
 
     # If not in state, ask
     if [[ -z "$nas_ip" ]]; then
-        nas_ip=$(ask_input "NAS/Synology IP address" "192.168.x.x")
+        nas_ip=$(ask_input "NAS/Synology IP address" "192.168.")
     else
         show_info "NAS IP from saved configuration: $nas_ip"
         if ! ask_confirm "Is this correct?"; then
@@ -941,7 +941,7 @@ menu_remote_uninstall() {
 
     if [[ -z "$mac_user" ]]; then
         show_warning "Mac username not found in configuration"
-        mac_user=$(ask_input "Mac username" "user_name")
+        mac_user=$(ask_input "Mac username" "")
     fi
 
     if [[ ! -f "$key_path" ]]; then
@@ -1012,7 +1012,7 @@ menu_fix_ssh_keys() {
     mac_user=$(get_config "mac_user")
 
     if [[ -z "$mac_user" ]]; then
-        mac_user=$(ask_input "Mac username (same for all Macs)" "user_name")
+        mac_user=$(ask_input "Mac username (same for all Macs)" "")
     fi
 
     # Step 1: Ensure SSH key exists in container
