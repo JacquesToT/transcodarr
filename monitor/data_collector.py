@@ -557,11 +557,23 @@ class DataCollector:
         SSH to each Mac node and collect CPU, memory, network stats.
         Also gets active ffmpeg processes with details.
         """
+        # Debug logging
+        import os
+        debug_file = os.path.expanduser("~/.transcodarr/monitor_debug.log")
+
+        with open(debug_file, "a") as f:
+            f.write(f"\n--- get_all_node_stats ---\n")
+            f.write(f"rffmpeg_hosts: {self._data.rffmpeg_hosts}\n")
+
         if not self._data.rffmpeg_hosts:
+            with open(debug_file, "a") as f:
+                f.write("No hosts, returning empty\n")
             return []
 
         # Get mac_user from config (for SSH to Mac nodes)
         mac_user = self._get_mac_user()
+        with open(debug_file, "a") as f:
+            f.write(f"mac_user: {mac_user}\n")
 
         # Collect stats for all nodes in parallel
         tasks = []
@@ -574,6 +586,9 @@ class DataCollector:
                 except (ValueError, TypeError):
                     weight = 1
 
+                with open(debug_file, "a") as f:
+                    f.write(f"Creating task for {ip}\n")
+
                 tasks.append(self._get_single_node_stats(
                     ip=ip,
                     mac_user=mac_user,
@@ -583,7 +598,15 @@ class DataCollector:
 
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            with open(debug_file, "a") as f:
+                f.write(f"gather results: {results}\n")
+
             node_stats = [r for r in results if isinstance(r, NodeStats)]
+
+            with open(debug_file, "a") as f:
+                f.write(f"filtered node_stats: {node_stats}\n")
+
             self._data.node_stats = node_stats
             return node_stats
 
