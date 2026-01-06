@@ -388,28 +388,51 @@ class DataCollector:
 
         try:
             # get_docker_command handles both local Synology and remote Mac modes
-            cmd = self.config.get_docker_command(
-                "rffmpeg status 2>/dev/null || echo 'rffmpeg not available'"
-            )
+            cmd = self.config.get_docker_command("rffmpeg status")
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(
+            stdout, stderr = await asyncio.wait_for(
                 proc.communicate(),
                 timeout=10
             )
 
             output = stdout.decode().strip()
-            if "not available" in output or not output:
+            error = stderr.decode().strip()
+
+            # Debug: log to file
+            import os
+            debug_file = os.path.expanduser("~/.transcodarr/monitor_debug.log")
+            os.makedirs(os.path.dirname(debug_file), exist_ok=True)
+            with open(debug_file, "a") as f:
+                f.write(f"\n--- rffmpeg status ---\n")
+                f.write(f"cmd: {cmd}\n")
+                f.write(f"returncode: {proc.returncode}\n")
+                f.write(f"stdout: {output[:500]}\n")
+                f.write(f"stderr: {error[:200]}\n")
+
+            if not output or proc.returncode != 0:
                 return []
 
             hosts = self._parse_rffmpeg_status(output)
+
+            # Debug: log parsed hosts
+            with open(debug_file, "a") as f:
+                f.write(f"parsed hosts: {hosts}\n")
+
             self._data.rffmpeg_hosts = hosts
             return hosts
 
-        except Exception:
+        except Exception as e:
+            # Debug: log exception
+            import os
+            debug_file = os.path.expanduser("~/.transcodarr/monitor_debug.log")
+            os.makedirs(os.path.dirname(debug_file), exist_ok=True)
+            with open(debug_file, "a") as f:
+                f.write(f"\n--- rffmpeg status EXCEPTION ---\n")
+                f.write(f"error: {e}\n")
             return []
 
     def _parse_rffmpeg_status(self, output: str) -> list[dict]:
