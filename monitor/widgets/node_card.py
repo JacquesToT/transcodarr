@@ -2,12 +2,12 @@
 
 from textual.app import ComposeResult
 from textual.widgets import Static
-from textual.containers import Vertical
+from textual.containers import Vertical, Container
 
 from ..data_collector import NodeStats, TranscodeJob
 
 
-class NodeCard(Static):
+class NodeCard(Container):
     """Widget showing a single transcode node with stats and jobs."""
 
     DEFAULT_CSS = """
@@ -69,12 +69,20 @@ class NodeCard(Static):
         self.compact = compact
 
     def compose(self) -> ComposeResult:
+        import os
+        debug_file = os.path.expanduser("~/.transcodarr/monitor_debug.log")
+        with open(debug_file, "a") as f:
+            f.write(f"\n--- NodeCard.compose() called for {self.node.ip} ---\n")
         yield Static(id="node-header")
         yield Static(id="node-stats")
         yield Vertical(id="node-jobs")
 
     def on_mount(self) -> None:
         """Update content when mounted."""
+        import os
+        debug_file = os.path.expanduser("~/.transcodarr/monitor_debug.log")
+        with open(debug_file, "a") as f:
+            f.write(f"\n--- NodeCard.on_mount() called for {self.node.ip} ---\n")
         self._update_display()
         self._set_state_class()
 
@@ -90,6 +98,11 @@ class NodeCard(Static):
 
     def _update_display(self) -> None:
         """Update all display elements."""
+        import os
+        debug_file = os.path.expanduser("~/.transcodarr/monitor_debug.log")
+        with open(debug_file, "a") as f:
+            f.write(f"\n--- NodeCard._update_display() for {self.node.ip} ---\n")
+
         # Header: Node name and status
         header = self.query_one("#node-header", Static)
         status_icon = "●" if self.node.is_online else "○"
