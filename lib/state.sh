@@ -130,16 +130,26 @@ set_config() {
     escaped_value=$(printf '%s' "$value" | sed 's/[&/\]/\\&/g')
 
     if grep -q "\"config\": *{" "$STATE_FILE"; then
+        # First, expand empty config {} to multi-line if needed
+        if grep -q '"config": *{}' "$STATE_FILE"; then
+            sed -i.bak 's/"config": *{}/"config": {\n  }/' "$STATE_FILE"
+            rm -f "${STATE_FILE}.bak"
+        fi
+
         # Config section exists, add/update key
         if grep -q "\"$key\":" "$STATE_FILE"; then
             # Use | as delimiter to avoid issues with /
             sed -i.bak "s|\"$key\": *\"[^\"]*\"|\"$key\": \"$escaped_value\"|" "$STATE_FILE"
             rm -f "${STATE_FILE}.bak"
         else
-            # Add key to config object using temp file for portability
+            # Add key inside config object - find the closing } of config and insert before it
             local temp_file="${STATE_FILE}.tmp"
             awk -v key="$key" -v val="$escaped_value" '
-                /"config": *\{/ { print; getline; print "    \"" key "\": \"" val "\","; print; next }
+                /"config": *\{/ { in_config=1 }
+                in_config && /^  \}/ {
+                    print "    \"" key "\": \"" val "\","
+                    in_config=0
+                }
                 { print }
             ' "$STATE_FILE" > "$temp_file" && mv "$temp_file" "$STATE_FILE"
         fi
