@@ -413,23 +413,50 @@ class DataCollector:
             return []
 
     def _parse_rffmpeg_status(self, output: str) -> list[dict]:
-        """Parse rffmpeg status output."""
+        """Parse rffmpeg status output.
+
+        Output format:
+        Hostname        Servername      ID  Weight  State   Active Commands
+        192.168.175.43  192.168.175.43  1   4       active  PID 123: ffmpeg ...
+                                                            PID 456: ffmpeg ...
+
+        Note: Active Commands can span multiple lines with continuation.
+        Only lines starting with an IP address or hostname are new entries.
+        """
         hosts = []
         lines = output.strip().split("\n")
 
+        # Skip header line
         for line in lines[1:]:
             if not line.strip():
                 continue
 
+            # Check if this line starts a new host entry
+            # Host entries start with an IP address or non-whitespace hostname
+            # Continuation lines start with whitespace
+            if line[0].isspace():
+                # This is a continuation line (more PIDs), skip it
+                continue
+
             parts = line.split()
             if len(parts) >= 5:
+                # Validate that this looks like a host entry
+                # parts[0] should be IP/hostname, parts[2] should be numeric ID
+                hostname = parts[0]
+                try:
+                    host_id = int(parts[2])
+                    weight = int(parts[3])
+                except (ValueError, IndexError):
+                    # Not a valid host line, skip
+                    continue
+
                 hosts.append({
-                    "hostname": parts[0],
+                    "hostname": hostname,
                     "servername": parts[1] if len(parts) > 1 else "",
-                    "id": parts[2] if len(parts) > 2 else "",
-                    "weight": parts[3] if len(parts) > 3 else "",
-                    "state": parts[4] if len(parts) > 4 else "",
-                    "active": parts[5] if len(parts) > 5 else "0",
+                    "id": str(host_id),
+                    "weight": str(weight),
+                    "state": parts[4] if len(parts) > 4 else "unknown",
+                    "active": "0",  # We'll count PIDs separately if needed
                 })
 
         return hosts
@@ -518,11 +545,17 @@ class DataCollector:
         for host in self._data.rffmpeg_hosts:
             ip = host.get("hostname", "")
             if ip:
+                # Safely convert weight to int
+                try:
+                    weight = int(host.get("weight", 1))
+                except (ValueError, TypeError):
+                    weight = 1
+
                 tasks.append(self._get_single_node_stats(
                     ip=ip,
                     mac_user=mac_user,
                     state=host.get("state", "unknown"),
-                    weight=int(host.get("weight", 1))
+                    weight=weight
                 ))
 
         if tasks:
