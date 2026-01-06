@@ -11,6 +11,23 @@ _MAC_SETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -z "$RED" ]] && source "$_MAC_SETUP_DIR/ui.sh"
 
 # ============================================================================
+# FFMPEG CONSTANTS
+# ============================================================================
+
+# jellyfin-ffmpeg paths (HDR/Dolby Vision support)
+JELLYFIN_FFMPEG_DIR="/opt/jellyfin-ffmpeg"
+JELLYFIN_FFMPEG_BIN="${JELLYFIN_FFMPEG_DIR}/ffmpeg"
+JELLYFIN_FFPROBE_BIN="${JELLYFIN_FFMPEG_DIR}/ffprobe"
+
+# Homebrew FFmpeg paths (standard, no HDR tone mapping)
+HOMEBREW_FFMPEG_BIN="/opt/homebrew/bin/ffmpeg"
+HOMEBREW_FFPROBE_BIN="/opt/homebrew/bin/ffprobe"
+
+# GitHub API for jellyfin-ffmpeg releases
+JELLYFIN_RELEASES_URL="https://api.github.com/repos/jellyfin/jellyfin-server-macos/releases/latest"
+JELLYFIN_KNOWN_GOOD_VERSION="v10.10.3"  # Fallback if API fails
+
+# ============================================================================
 # HOMEBREW
 # ============================================================================
 
@@ -55,25 +72,322 @@ install_homebrew() {
 }
 
 # ============================================================================
-# FFMPEG
+# JELLYFIN-FFMPEG (HDR/Dolby Vision Support)
 # ============================================================================
 
+# Get native architecture (handles Rosetta correctly)
+get_native_arch() {
+    # Check for Apple Silicon even if running under Rosetta
+    if [[ $(sysctl -n hw.optional.arm64 2>/dev/null) == "1" ]]; then
+        echo "arm64"
+    else
+        uname -m
+    fi
+}
+
+# Check if jellyfin-ffmpeg is installed and working
+check_jellyfin_ffmpeg() {
+    # Check 1: Binary exists
+    [[ -f "$JELLYFIN_FFMPEG_BIN" ]] || return 1
+
+    # Check 2: Can execute (no quarantine/permission issues)
+    "$JELLYFIN_FFMPEG_BIN" -version &>/dev/null || return 1
+
+    # Check 3: Has tonemapx filter (the reason we want jellyfin-ffmpeg)
+    "$JELLYFIN_FFMPEG_BIN" -filters 2>&1 | grep -q "tonemapx" || return 1
+
+    # Check 4: Has VideoToolbox (hardware acceleration)
+    "$JELLYFIN_FFMPEG_BIN" -encoders 2>&1 | grep -q "videotoolbox" || return 1
+
+    return 0
+}
+
+# Get latest jellyfin-ffmpeg version from GitHub (with rate limit fallback)
+get_jellyfin_ffmpeg_latest_version() {
+    local response http_code body
+
+    # Fetch with HTTP code
+    response=$(curl -sL -w "\n%{http_code}" "$JELLYFIN_RELEASES_URL" 2>/dev/null)
+    http_code=$(echo "$response" | tail -1)
+    body=$(echo "$response" | sed '$d')
+
+    # Check for rate limiting or other errors
+    if [[ "$http_code" != "200" ]]; then
+        show_warning "GitHub API unavailable (HTTP $http_code), using fallback version"
+        echo "$JELLYFIN_KNOWN_GOOD_VERSION"
+        return
+    fi
+
+    # Parse tag_name from JSON
+    local version
+    version=$(echo "$body" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*: *"\([^"]*\)".*/\1/')
+
+    if [[ -z "$version" ]]; then
+        show_warning "Could not parse version, using fallback"
+        echo "$JELLYFIN_KNOWN_GOOD_VERSION"
+        return
+    fi
+
+    echo "$version"
+}
+
+# Download jellyfin-ffmpeg DMG for current architecture
+download_jellyfin_ffmpeg() {
+    local version="${1:-$(get_jellyfin_ffmpeg_latest_version)}"
+    local arch=$(get_native_arch)
+    local download_url=""
+    local dmg_file="/tmp/jellyfin-${version}-$$.dmg"
+
+    # Determine download URL based on architecture
+    case "$arch" in
+        arm64)
+            download_url="https://github.com/jellyfin/jellyfin-server-macos/releases/download/${version}/jellyfin_${version#v}-arm64.dmg"
+            ;;
+        x86_64)
+            download_url="https://github.com/jellyfin/jellyfin-server-macos/releases/download/${version}/jellyfin_${version#v}-x64.dmg"
+            ;;
+        *)
+            show_error "Unsupported architecture: $arch"
+            return 1
+            ;;
+    esac
+
+    show_info "Downloading jellyfin-ffmpeg ${version} for ${arch}..."
+    show_info "This is ~300MB, please wait..."
+
+    if curl -L --progress-bar -o "$dmg_file" "$download_url" 2>&1; then
+        if [[ -f "$dmg_file" ]] && [[ $(stat -f%z "$dmg_file" 2>/dev/null || stat -c%s "$dmg_file" 2>/dev/null) -gt 1000000 ]]; then
+            echo "$dmg_file"
+            return 0
+        else
+            show_error "Download incomplete or corrupted"
+            rm -f "$dmg_file"
+            return 1
+        fi
+    else
+        show_error "Download failed"
+        rm -f "$dmg_file"
+        return 1
+    fi
+}
+
+# Install jellyfin-ffmpeg from DMG
+install_jellyfin_ffmpeg() {
+    # Check if already installed
+    if check_jellyfin_ffmpeg; then
+        show_skip "jellyfin-ffmpeg is already installed"
+        # Update state for consistency
+        set_config "ffmpeg_variant" "jellyfin"
+        set_config "ffmpeg_path" "$JELLYFIN_FFMPEG_BIN"
+        return 0
+    fi
+
+    show_what_this_does "Installing jellyfin-ffmpeg for full HDR/Dolby Vision support."
+
+    # Step 1: Get version
+    local version
+    version=$(get_jellyfin_ffmpeg_latest_version)
+    show_info "Version: $version"
+
+    # Step 2: Download DMG
+    local dmg_file
+    dmg_file=$(download_jellyfin_ffmpeg "$version")
+
+    if [[ -z "$dmg_file" ]] || [[ ! -f "$dmg_file" ]]; then
+        show_error "Download failed"
+        return 1
+    fi
+
+    # Step 3: Mount DMG (with flags to prevent UI dialogs)
+    local mount_point="/tmp/jellyfin_mount_$$"
+    mkdir -p "$mount_point"
+
+    show_info "Mounting disk image..."
+    if ! hdiutil attach "$dmg_file" -nobrowse -noverify -noautoopen -mountpoint "$mount_point" 2>/dev/null; then
+        show_error "Failed to mount DMG"
+        rm -f "$dmg_file"
+        rmdir "$mount_point" 2>/dev/null || true
+        return 1
+    fi
+
+    # Step 4: Find and copy binaries
+    local app_frameworks="${mount_point}/Jellyfin.app/Contents/Frameworks"
+
+    if [[ ! -d "$app_frameworks" ]]; then
+        show_error "FFmpeg binaries not found in DMG"
+        hdiutil detach "$mount_point" -force 2>/dev/null || true
+        rm -f "$dmg_file"
+        rmdir "$mount_point" 2>/dev/null || true
+        return 1
+    fi
+
+    show_info "Extracting FFmpeg binaries..."
+    sudo mkdir -p "$JELLYFIN_FFMPEG_DIR"
+
+    # Copy ffmpeg and ffprobe
+    if [[ -f "${app_frameworks}/ffmpeg" ]]; then
+        sudo cp "${app_frameworks}/ffmpeg" "$JELLYFIN_FFMPEG_BIN"
+        sudo cp "${app_frameworks}/ffprobe" "$JELLYFIN_FFPROBE_BIN"
+    else
+        # Alternative: copy all frameworks
+        sudo cp -R "${app_frameworks}/"* "$JELLYFIN_FFMPEG_DIR/" 2>/dev/null || true
+    fi
+
+    # Step 5: Unmount and cleanup
+    hdiutil detach "$mount_point" -force 2>/dev/null || true
+    rm -f "$dmg_file"
+    rmdir "$mount_point" 2>/dev/null || true
+
+    # Step 6: Remove quarantine
+    show_info "Removing macOS quarantine..."
+    sudo xattr -rd com.apple.quarantine "$JELLYFIN_FFMPEG_DIR" 2>/dev/null || true
+
+    # Step 7: Set permissions
+    sudo chmod +x "$JELLYFIN_FFMPEG_BIN" "$JELLYFIN_FFPROBE_BIN" 2>/dev/null || true
+
+    # Step 8: Verification - MUST succeed before saving state
+    echo ""
+    if check_jellyfin_ffmpeg; then
+        show_result true "jellyfin-ffmpeg installed"
+
+        # Show capabilities
+        if "$JELLYFIN_FFMPEG_BIN" -filters 2>&1 | grep -q "tonemapx"; then
+            show_info "HDR tone mapping (tonemapx): available"
+        fi
+        if "$JELLYFIN_FFMPEG_BIN" -encoders 2>&1 | grep -q "hevc_videotoolbox"; then
+            show_info "HEVC VideoToolbox encoder: available"
+        fi
+
+        # NOW save state (only after successful verification)
+        set_config "ffmpeg_variant" "jellyfin"
+        set_config "ffmpeg_path" "$JELLYFIN_FFMPEG_BIN"
+        set_config "ffprobe_path" "$JELLYFIN_FFPROBE_BIN"
+        set_config "jellyfin_ffmpeg_version" "$version"
+        mark_step_complete "jellyfin_ffmpeg"
+
+        return 0
+    else
+        show_result false "jellyfin-ffmpeg verification failed"
+        show_info "Cleaning up partial installation..."
+        sudo rm -rf "$JELLYFIN_FFMPEG_DIR"
+        return 1
+    fi
+}
+
+# Uninstall jellyfin-ffmpeg (for switching back to Homebrew)
+uninstall_jellyfin_ffmpeg() {
+    if [[ -d "$JELLYFIN_FFMPEG_DIR" ]]; then
+        show_info "Removing jellyfin-ffmpeg..."
+        sudo rm -rf "$JELLYFIN_FFMPEG_DIR"
+        set_config "ffmpeg_variant" ""
+        set_config "ffmpeg_path" ""
+        show_result true "jellyfin-ffmpeg removed"
+    else
+        show_skip "jellyfin-ffmpeg not installed"
+    fi
+}
+
+# User choice between FFmpeg variants
+choose_ffmpeg_variant() {
+    echo ""
+    show_explanation "FFmpeg Variant Selection" \
+        "jellyfin-ffmpeg: Full HDR/HDR10+/Dolby Vision support (recommended)" \
+        "Homebrew FFmpeg: Standard version, SDR transcoding only"
+
+    local choice
+
+    if command -v gum &>/dev/null; then
+        choice=$(gum choose \
+            "jellyfin-ffmpeg (Recommended - HDR support)" \
+            "Homebrew FFmpeg (Standard - SDR only)")
+
+        case "$choice" in
+            "jellyfin-ffmpeg"*)
+                echo "jellyfin"
+                ;;
+            "Homebrew"*)
+                echo "homebrew"
+                ;;
+            *)
+                echo "jellyfin"  # Default to recommended
+                ;;
+        esac
+    else
+        echo ""
+        echo "Choose FFmpeg variant:"
+        echo "  1) jellyfin-ffmpeg (Recommended - HDR support)"
+        echo "  2) Homebrew FFmpeg (Standard - SDR only)"
+        read -p "Choice [1]: " choice
+
+        case "$choice" in
+            2)
+                echo "homebrew"
+                ;;
+            *)
+                echo "jellyfin"
+                ;;
+        esac
+    fi
+}
+
+# Get the path to the active ffmpeg binary
+get_ffmpeg_path() {
+    if check_jellyfin_ffmpeg; then
+        echo "$JELLYFIN_FFMPEG_BIN"
+    elif [[ -f "$HOMEBREW_FFMPEG_BIN" ]]; then
+        echo "$HOMEBREW_FFMPEG_BIN"
+    else
+        echo ""
+    fi
+}
+
+# Get the path to the active ffprobe binary
+get_ffprobe_path() {
+    if check_jellyfin_ffmpeg; then
+        echo "$JELLYFIN_FFPROBE_BIN"
+    elif [[ -f "$HOMEBREW_FFPROBE_BIN" ]]; then
+        echo "$HOMEBREW_FFPROBE_BIN"
+    else
+        echo ""
+    fi
+}
+
+# ============================================================================
+# FFMPEG (Homebrew)
+# ============================================================================
+
+# Check if any FFmpeg (jellyfin or Homebrew) is installed
 check_ffmpeg() {
-    [[ -f "/opt/homebrew/bin/ffmpeg" ]] && \
-        /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "videotoolbox"
+    # Prioritize jellyfin-ffmpeg (has HDR support)
+    if check_jellyfin_ffmpeg; then
+        return 0
+    fi
+
+    # Fall back to Homebrew FFmpeg
+    [[ -f "$HOMEBREW_FFMPEG_BIN" ]] && \
+        "$HOMEBREW_FFMPEG_BIN" -encoders 2>&1 | grep -q "videotoolbox"
+}
+
+# Check for homebrew ffmpeg specifically
+check_homebrew_ffmpeg() {
+    [[ -f "$HOMEBREW_FFMPEG_BIN" ]] && \
+        "$HOMEBREW_FFMPEG_BIN" -encoders 2>&1 | grep -q "videotoolbox"
 }
 
 check_ffmpeg_fdk_aac() {
-    [[ -f "/opt/homebrew/bin/ffmpeg" ]] && \
-        /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "libfdk_aac"
+    [[ -f "$HOMEBREW_FFMPEG_BIN" ]] && \
+        "$HOMEBREW_FFMPEG_BIN" -encoders 2>&1 | grep -q "libfdk_aac"
 }
 
-install_ffmpeg() {
-    if check_ffmpeg; then
-        show_skip "FFmpeg with VideoToolbox is already installed"
+# Install Homebrew FFmpeg (original function, renamed)
+install_homebrew_ffmpeg() {
+    if check_homebrew_ffmpeg; then
+        show_skip "Homebrew FFmpeg with VideoToolbox is already installed"
         if check_ffmpeg_fdk_aac; then
             show_info "libfdk-aac encoder available"
         fi
+        set_config "ffmpeg_variant" "homebrew"
+        set_config "ffmpeg_path" "$HOMEBREW_FFMPEG_BIN"
         return 0
     fi
 
@@ -106,8 +420,10 @@ install_ffmpeg() {
     echo ""
 
     # Verify installation
-    if check_ffmpeg; then
+    if check_homebrew_ffmpeg; then
         show_result true "FFmpeg with VideoToolbox installed"
+        set_config "ffmpeg_variant" "homebrew"
+        set_config "ffmpeg_path" "$HOMEBREW_FFMPEG_BIN"
         mark_step_complete "ffmpeg"
 
         if check_ffmpeg_fdk_aac; then
@@ -117,9 +433,11 @@ install_ffmpeg() {
         fi
         return 0
     else
-        if [[ -f "/opt/homebrew/bin/ffmpeg" ]]; then
+        if [[ -f "$HOMEBREW_FFMPEG_BIN" ]]; then
             show_warning "FFmpeg installed but VideoToolbox not found"
             show_info "Software encoding will be used"
+            set_config "ffmpeg_variant" "homebrew"
+            set_config "ffmpeg_path" "$HOMEBREW_FFMPEG_BIN"
             mark_step_complete "ffmpeg"
             return 0
         else
@@ -128,6 +446,55 @@ install_ffmpeg() {
             return 1
         fi
     fi
+}
+
+# Main FFmpeg installation (with variant choice)
+install_ffmpeg() {
+    local variant="${1:-}"
+    local force="${2:-false}"
+
+    # Auto-detect existing installation (unless force=true)
+    if [[ "$force" != "true" ]]; then
+        if check_jellyfin_ffmpeg; then
+            show_skip "jellyfin-ffmpeg is already installed (HDR support enabled)"
+            set_config "ffmpeg_variant" "jellyfin"
+            set_config "ffmpeg_path" "$JELLYFIN_FFMPEG_BIN"
+            return 0
+        fi
+
+        if check_homebrew_ffmpeg; then
+            show_skip "Homebrew FFmpeg with VideoToolbox is already installed"
+            set_config "ffmpeg_variant" "homebrew"
+            set_config "ffmpeg_path" "$HOMEBREW_FFMPEG_BIN"
+
+            # Offer upgrade to jellyfin-ffmpeg
+            echo ""
+            show_info "Note: For HDR/Dolby Vision support, consider jellyfin-ffmpeg"
+            if ask_confirm "Upgrade to jellyfin-ffmpeg for HDR support?"; then
+                install_jellyfin_ffmpeg
+                return $?
+            fi
+            return 0
+        fi
+    fi
+
+    # Ask user for variant if not specified
+    if [[ -z "$variant" ]]; then
+        variant=$(choose_ffmpeg_variant)
+    fi
+
+    echo ""
+    show_info "Installing: $variant"
+    echo ""
+
+    case "$variant" in
+        jellyfin)
+            install_jellyfin_ffmpeg
+            ;;
+        homebrew|*)
+            install_homebrew_ffmpeg
+            ;;
+    esac
 }
 
 # ============================================================================

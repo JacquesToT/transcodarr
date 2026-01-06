@@ -291,6 +291,31 @@ remote_check_ffmpeg() {
     local mac_user="$1"
     local mac_ip="$2"
     local key_path="$3"
+
+    # Check jellyfin-ffmpeg first (has HDR support)
+    if remote_check_jellyfin_ffmpeg "$mac_user" "$mac_ip" "$key_path"; then
+        return 0
+    fi
+
+    # Check Homebrew FFmpeg
+    ssh_exec "$mac_user" "$mac_ip" "$key_path" \
+        "[[ -f /opt/homebrew/bin/ffmpeg ]] && /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q videotoolbox"
+}
+
+# Check for jellyfin-ffmpeg specifically (with tonemapx for HDR)
+remote_check_jellyfin_ffmpeg() {
+    local mac_user="$1"
+    local mac_ip="$2"
+    local key_path="$3"
+    ssh_exec "$mac_user" "$mac_ip" "$key_path" \
+        "[[ -f /opt/jellyfin-ffmpeg/ffmpeg ]] && /opt/jellyfin-ffmpeg/ffmpeg -filters 2>&1 | grep -q tonemapx && /opt/jellyfin-ffmpeg/ffmpeg -encoders 2>&1 | grep -q videotoolbox"
+}
+
+# Check for Homebrew FFmpeg specifically
+remote_check_homebrew_ffmpeg() {
+    local mac_user="$1"
+    local mac_ip="$2"
+    local key_path="$3"
     ssh_exec "$mac_user" "$mac_ip" "$key_path" \
         "[[ -f /opt/homebrew/bin/ffmpeg ]] && /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q videotoolbox"
 }
@@ -372,17 +397,146 @@ remote_install_homebrew() {
     fi
 }
 
-remote_install_ffmpeg() {
+# Install jellyfin-ffmpeg on remote Mac (HDR/Dolby Vision support)
+remote_install_jellyfin_ffmpeg() {
     local mac_user="$1"
     local mac_ip="$2"
     local key_path="$3"
 
-    if remote_check_ffmpeg "$mac_user" "$mac_ip" "$key_path"; then
-        show_skip "FFmpeg with VideoToolbox is already installed"
+    # Check if already installed
+    if remote_check_jellyfin_ffmpeg "$mac_user" "$mac_ip" "$key_path"; then
+        show_skip "jellyfin-ffmpeg is already installed on Mac"
         return 0
     fi
 
-    show_info "Installing FFmpeg on Mac..."
+    show_info "Installing jellyfin-ffmpeg on Mac..."
+    show_info "This will download ~300MB and may take several minutes..."
+
+    # Remote installation script with all mitigations
+    ssh_exec "$mac_user" "$mac_ip" "$key_path" '
+        set -e
+
+        JELLYFIN_FFMPEG_DIR="/opt/jellyfin-ffmpeg"
+        KNOWN_GOOD_VERSION="v10.10.3"
+
+        # Get native architecture (handles Rosetta)
+        if [[ $(sysctl -n hw.optional.arm64 2>/dev/null) == "1" ]]; then
+            ARCH="arm64"
+        else
+            ARCH=$(uname -m)
+        fi
+
+        # Get latest version from GitHub (with fallback)
+        echo "Fetching latest version..."
+        RESPONSE=$(curl -sL -w "\n%{http_code}" "https://api.github.com/repos/jellyfin/jellyfin-server-macos/releases/latest" 2>/dev/null)
+        HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+        BODY=$(echo "$RESPONSE" | sed "\$d")
+
+        if [[ "$HTTP_CODE" == "200" ]]; then
+            VERSION=$(echo "$BODY" | grep -o "\"tag_name\": *\"[^\"]*\"" | head -1 | sed "s/.*: *\"\([^\"]*\)\".*/\1/")
+        fi
+
+        if [[ -z "$VERSION" ]]; then
+            echo "Using fallback version: $KNOWN_GOOD_VERSION"
+            VERSION="$KNOWN_GOOD_VERSION"
+        fi
+
+        echo "Version: $VERSION"
+
+        # Determine download URL
+        if [[ "$ARCH" == "arm64" ]]; then
+            URL="https://github.com/jellyfin/jellyfin-server-macos/releases/download/${VERSION}/jellyfin_${VERSION#v}-arm64.dmg"
+        else
+            URL="https://github.com/jellyfin/jellyfin-server-macos/releases/download/${VERSION}/jellyfin_${VERSION#v}-x64.dmg"
+        fi
+
+        echo "Downloading from: $URL"
+        DMG_FILE="/tmp/jellyfin-$$.dmg"
+        curl -L --progress-bar -o "$DMG_FILE" "$URL"
+
+        # Verify download
+        if [[ ! -f "$DMG_FILE" ]] || [[ $(stat -f%z "$DMG_FILE" 2>/dev/null || echo 0) -lt 1000000 ]]; then
+            echo "ERROR: Download failed or incomplete"
+            rm -f "$DMG_FILE"
+            exit 1
+        fi
+
+        # Mount DMG (with all flags to prevent UI dialogs)
+        echo "Mounting disk image..."
+        MOUNT_POINT="/tmp/jellyfin_mount_$$"
+        mkdir -p "$MOUNT_POINT"
+
+        # Force detach if already mounted, then attach
+        hdiutil detach "$MOUNT_POINT" -force 2>/dev/null || true
+        if ! hdiutil attach "$DMG_FILE" -nobrowse -noverify -noautoopen -mountpoint "$MOUNT_POINT" 2>/dev/null; then
+            echo "ERROR: Failed to mount DMG"
+            rm -f "$DMG_FILE"
+            rmdir "$MOUNT_POINT" 2>/dev/null || true
+            exit 1
+        fi
+
+        # Find and copy binaries
+        APP_FRAMEWORKS="${MOUNT_POINT}/Jellyfin.app/Contents/Frameworks"
+        if [[ ! -d "$APP_FRAMEWORKS" ]]; then
+            echo "ERROR: FFmpeg not found in DMG"
+            hdiutil detach "$MOUNT_POINT" -force 2>/dev/null || true
+            rm -f "$DMG_FILE"
+            exit 1
+        fi
+
+        echo "Extracting FFmpeg binaries..."
+        sudo mkdir -p "$JELLYFIN_FFMPEG_DIR"
+
+        if [[ -f "${APP_FRAMEWORKS}/ffmpeg" ]]; then
+            sudo cp "${APP_FRAMEWORKS}/ffmpeg" "${JELLYFIN_FFMPEG_DIR}/ffmpeg"
+            sudo cp "${APP_FRAMEWORKS}/ffprobe" "${JELLYFIN_FFMPEG_DIR}/ffprobe"
+        else
+            sudo cp -R "${APP_FRAMEWORKS}/"* "${JELLYFIN_FFMPEG_DIR}/"
+        fi
+
+        # Cleanup
+        echo "Cleaning up..."
+        hdiutil detach "$MOUNT_POINT" -force 2>/dev/null || true
+        rm -f "$DMG_FILE"
+        rmdir "$MOUNT_POINT" 2>/dev/null || true
+
+        # Remove quarantine and set permissions
+        echo "Configuring permissions..."
+        sudo xattr -rd com.apple.quarantine "$JELLYFIN_FFMPEG_DIR" 2>/dev/null || true
+        sudo chmod +x "${JELLYFIN_FFMPEG_DIR}/ffmpeg" "${JELLYFIN_FFMPEG_DIR}/ffprobe" 2>/dev/null || true
+
+        # Verification
+        echo "Verifying installation..."
+        if "${JELLYFIN_FFMPEG_DIR}/ffmpeg" -filters 2>&1 | grep -q tonemapx; then
+            echo "SUCCESS: jellyfin-ffmpeg installed with HDR support"
+            "${JELLYFIN_FFMPEG_DIR}/ffmpeg" -version | head -1
+        else
+            echo "WARNING: tonemapx filter not detected"
+        fi
+    '
+
+    # Verify installation from Synology side
+    if remote_check_jellyfin_ffmpeg "$mac_user" "$mac_ip" "$key_path"; then
+        show_result true "jellyfin-ffmpeg installed on Mac"
+        return 0
+    else
+        show_warning "jellyfin-ffmpeg installed but verification failed"
+        return 0  # Don't fail completely
+    fi
+}
+
+# Install Homebrew FFmpeg on remote Mac (original function renamed)
+remote_install_homebrew_ffmpeg() {
+    local mac_user="$1"
+    local mac_ip="$2"
+    local key_path="$3"
+
+    if remote_check_homebrew_ffmpeg "$mac_user" "$mac_ip" "$key_path"; then
+        show_skip "Homebrew FFmpeg with VideoToolbox is already installed"
+        return 0
+    fi
+
+    show_info "Installing Homebrew FFmpeg on Mac..."
     show_info "This may take several minutes (compiling from source)..."
 
     ssh_exec "$mac_user" "$mac_ip" "$key_path" '
@@ -397,8 +551,8 @@ remote_install_ffmpeg() {
         brew link --overwrite ffmpeg 2>&1 || brew link --overwrite homebrew-ffmpeg/ffmpeg/ffmpeg 2>&1 || true
     '
 
-    if remote_check_ffmpeg "$mac_user" "$mac_ip" "$key_path"; then
-        show_result true "FFmpeg with VideoToolbox installed"
+    if remote_check_homebrew_ffmpeg "$mac_user" "$mac_ip" "$key_path"; then
+        show_result true "Homebrew FFmpeg with VideoToolbox installed"
     else
         if ssh_exec "$mac_user" "$mac_ip" "$key_path" "[[ -f /opt/homebrew/bin/ffmpeg ]]"; then
             show_warning "FFmpeg installed but VideoToolbox not detected"
@@ -430,6 +584,46 @@ remote_install_ffmpeg() {
     fi
 
     return 0
+}
+
+# Main FFmpeg installation (with variant support)
+remote_install_ffmpeg() {
+    local mac_user="$1"
+    local mac_ip="$2"
+    local key_path="$3"
+    local variant="${4:-$(get_config ffmpeg_variant)}"
+
+    # Default to jellyfin if not specified
+    if [[ -z "$variant" ]]; then
+        variant="jellyfin"
+    fi
+
+    # Check if already installed
+    if remote_check_jellyfin_ffmpeg "$mac_user" "$mac_ip" "$key_path"; then
+        show_skip "jellyfin-ffmpeg is already installed on Mac (HDR support enabled)"
+        return 0
+    fi
+
+    if remote_check_homebrew_ffmpeg "$mac_user" "$mac_ip" "$key_path"; then
+        show_skip "Homebrew FFmpeg is already installed on Mac"
+        # Offer upgrade if configured for jellyfin
+        if [[ "$variant" == "jellyfin" ]]; then
+            echo ""
+            show_info "For HDR/Dolby Vision support, upgrading to jellyfin-ffmpeg..."
+            remote_install_jellyfin_ffmpeg "$mac_user" "$mac_ip" "$key_path"
+        fi
+        return 0
+    fi
+
+    # Install based on variant
+    case "$variant" in
+        jellyfin)
+            remote_install_jellyfin_ffmpeg "$mac_user" "$mac_ip" "$key_path"
+            ;;
+        homebrew|*)
+            remote_install_homebrew_ffmpeg "$mac_user" "$mac_ip" "$key_path"
+            ;;
+    esac
 }
 
 remote_setup_synthetic_links() {

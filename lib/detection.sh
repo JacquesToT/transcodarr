@@ -211,20 +211,62 @@ is_homebrew_installed() {
     command -v brew &> /dev/null
 }
 
-# Check if FFmpeg is installed
+# Check if jellyfin-ffmpeg is installed (with HDR support)
+is_jellyfin_ffmpeg_installed() {
+    [[ -f "/opt/jellyfin-ffmpeg/ffmpeg" ]] && \
+        /opt/jellyfin-ffmpeg/ffmpeg -filters 2>&1 | grep -q "tonemapx"
+}
+
+# Check if Homebrew FFmpeg is installed
+is_homebrew_ffmpeg_installed() {
+    [[ -f "/opt/homebrew/bin/ffmpeg" ]]
+}
+
+# Check if any FFmpeg is installed (jellyfin-ffmpeg or Homebrew)
 is_ffmpeg_installed() {
-    command -v ffmpeg &> /dev/null || [[ -f "/opt/homebrew/bin/ffmpeg" ]]
+    is_jellyfin_ffmpeg_installed || is_homebrew_ffmpeg_installed || command -v ffmpeg &> /dev/null
 }
 
 # Check if FFmpeg has VideoToolbox support
 has_videotoolbox() {
-    local ffmpeg_path="${1:-ffmpeg}"
+    local ffmpeg_path="${1:-}"
 
-    if [[ -f "/opt/homebrew/bin/ffmpeg" ]]; then
-        ffmpeg_path="/opt/homebrew/bin/ffmpeg"
+    # Check jellyfin-ffmpeg first (has HDR support)
+    if [[ -f "/opt/jellyfin-ffmpeg/ffmpeg" ]]; then
+        /opt/jellyfin-ffmpeg/ffmpeg -encoders 2>&1 | grep -q "videotoolbox" && return 0
     fi
 
-    "$ffmpeg_path" -encoders 2>&1 | grep -q "videotoolbox"
+    # Check Homebrew FFmpeg
+    if [[ -f "/opt/homebrew/bin/ffmpeg" ]]; then
+        /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "videotoolbox" && return 0
+    fi
+
+    # Check PATH ffmpeg
+    if command -v ffmpeg &>/dev/null; then
+        ffmpeg -encoders 2>&1 | grep -q "videotoolbox" && return 0
+    fi
+
+    return 1
+}
+
+# Check if HDR tone mapping (tonemapx) is available
+has_hdr_tonemapping() {
+    if [[ -f "/opt/jellyfin-ffmpeg/ffmpeg" ]]; then
+        /opt/jellyfin-ffmpeg/ffmpeg -filters 2>&1 | grep -q "tonemapx"
+    else
+        return 1
+    fi
+}
+
+# Get installed FFmpeg variant
+get_ffmpeg_variant() {
+    if is_jellyfin_ffmpeg_installed; then
+        echo "jellyfin"
+    elif is_homebrew_ffmpeg_installed; then
+        echo "homebrew"
+    else
+        echo "none"
+    fi
 }
 
 # Check if SSH key is installed in authorized_keys
@@ -335,10 +377,12 @@ show_detection_summary() {
     echo ""
 
     if is_mac; then
+        local ffmpeg_variant=$(get_ffmpeg_variant)
         echo "Mac Components:"
         echo "  - Homebrew: $(is_homebrew_installed && echo "Yes" || echo "No")"
-        echo "  - FFmpeg: $(is_ffmpeg_installed && echo "Yes" || echo "No")"
+        echo "  - FFmpeg: $(is_ffmpeg_installed && echo "Yes ($ffmpeg_variant)" || echo "No")"
         echo "  - VideoToolbox: $(has_videotoolbox && echo "Yes" || echo "No")"
+        echo "  - HDR Support: $(has_hdr_tonemapping && echo "Yes (tonemapx)" || echo "No")"
         echo "  - SSH Enabled: $(is_ssh_enabled && echo "Yes" || echo "No")"
         echo "  - SSH Key: $(has_transcodarr_ssh_key && echo "Yes" || echo "No")"
         echo "  - Synthetic Links: $(has_synthetic_links && echo "Yes" || echo "No")"
