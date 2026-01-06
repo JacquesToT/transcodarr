@@ -375,25 +375,16 @@ wizard_synology() {
     # Show completion
     echo ""
     show_remote_install_complete "$mac_ip" "$mac_user"
-    show_docker_mods_instructions "$mac_ip"
 
     # Step 8: Add Mac to rffmpeg
     show_step 8 8 "Register Mac with rffmpeg"
 
     echo ""
-    show_warning "╔═══════════════════════════════════════════════════════════╗"
-    show_warning "║  ACTION REQUIRED: Configure Jellyfin                      ║"
-    show_warning "╚═══════════════════════════════════════════════════════════╝"
-    echo ""
-    show_info "Add these environment variables to your Jellyfin container:"
-    echo ""
-    echo "  DOCKER_MODS=linuxserver/mods:jellyfin-rffmpeg"
-    echo "  FFMPEG_PATH=/usr/local/bin/ffmpeg"
-    echo ""
-    show_info "Then restart the Jellyfin container."
+    show_info "If you followed Step 2 of the README, DOCKER_MODS is already configured."
+    show_info "Make sure your Jellyfin container has been restarted with the new settings."
     echo ""
 
-    if ask_confirm "Have you restarted Jellyfin with DOCKER_MODS enabled?"; then
+    if ask_confirm "Has your Jellyfin container been restarted?"; then
         echo ""
         show_info "Waiting 10 seconds for rffmpeg to initialize..."
         sleep 10

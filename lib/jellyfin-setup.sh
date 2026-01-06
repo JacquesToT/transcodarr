@@ -378,6 +378,10 @@ copy_rffmpeg_files() {
     local jellyfin_config="$1"
     local success=true
 
+    echo ""
+    show_warning ">>> Enter your SYNOLOGY password when prompted <<<"
+    echo ""
+
     # Dynamically get abc user UID/GID from running container
     local abc_uid abc_gid
     abc_uid=$(sudo docker exec jellyfin id -u abc 2>/dev/null || echo "1000")
