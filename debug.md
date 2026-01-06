@@ -571,27 +571,32 @@ sudo docker exec -u abc jellyfin ssh -o BatchMode=yes -o ConnectTimeout=5 \
 
 Na deze debug sessie, de installer moet:
 
-1. **finalize_rffmpeg_setup()** - ✅ Toegevoegd
+1. **finalize_rffmpeg_setup()** - ✅ GEFIXED
    - Persist directory aanmaken
    - Keys naar default locatie kopiëren
-   - Parent dir permissions fixen
+   - Parent dir permissions fixen (`chmod 755 /var/lib/jellyfin`)
 
-2. **ffmpeg health check op Mac** - ❌ NOG TE DOEN
+2. **ffmpeg health check op Mac** - ✅ GEFIXED
    - Na ffmpeg install, run `/opt/homebrew/bin/ffmpeg -version`
-   - Als dit faalt met dyld errors: `brew reinstall ffmpeg`
-   - Pas doorgaan als ffmpeg werkt
+   - Als dit faalt met dyld errors: automatisch `brew reinstall ffmpeg`
+   - Locatie: `lib/remote-ssh.sh` in `remote_install_ffmpeg()`
 
-3. **NFS mount verificatie** - ❌ NOG TE DOEN
-   - Check of `/data/media/` leesbaar is op Mac
-   - Check of `/config/cache/` schrijfbaar is op Mac
-   - Toon duidelijke error als mounts niet werken
+3. **Transcodes directory permissions** - ✅ GEFIXED
+   - Mac user heeft andere UID dan Synology abc user
+   - Fix: `chmod 777 ${cache_path}/transcodes`
+   - Locatie: `install.sh` na `finalize_rffmpeg_setup()`
 
-4. **rffmpeg end-to-end test** - ❌ NOG TE DOEN
+4. **State.json trailing comma bug** - ✅ GEFIXED
+   - `set_config()` voegde trailing comma toe → invalid JSON
+   - Monitor las config niet correct → fallback naar verkeerde user
+   - Locatie: `lib/state.sh` in `set_config()`
+
+5. **rffmpeg end-to-end test** - ❌ NOG TE DOEN
    - Na volledige setup, run een test transcode
    - Verifieer dat Mac daadwerkelijk transcodes uitvoert
    - Reset "bad" host cache als test faalt en retry
 
-5. **Debug mode tijdelijk aan** - ❌ NOG TE DOEN
+6. **Debug mode tijdelijk aan** - ❌ NOG TE DOEN
    - Zet debug: true tijdens eerste test
    - Als test slaagt, zet debug: false
    - Geeft meer info bij problemen

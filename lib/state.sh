@@ -143,15 +143,35 @@ set_config() {
             rm -f "${STATE_FILE}.bak"
         else
             # Add key inside config object - find the closing } of config and insert before it
+            # First, check if config already has content (to add comma correctly)
             local temp_file="${STATE_FILE}.tmp"
-            awk -v key="$key" -v val="$escaped_value" '
-                /"config": *\{/ { in_config=1 }
-                in_config && /^  \}/ {
-                    print "    \"" key "\": \"" val "\","
-                    in_config=0
-                }
-                { print }
-            ' "$STATE_FILE" > "$temp_file" && mv "$temp_file" "$STATE_FILE"
+            if grep -q '"config": *{[^}]*[a-z]' "$STATE_FILE"; then
+                # Config has existing content - add comma after last item, then add new item
+                awk -v key="$key" -v val="$escaped_value" '
+                    /"config": *\{/ { in_config=1 }
+                    in_config && /^  \}/ {
+                        # Add new key without trailing comma (it will be the last item)
+                        print "    \"" key "\": \"" val "\""
+                        in_config=0
+                    }
+                    in_config && /"[a-z_]+": *"[^"]*"$/ {
+                        # Add comma to previous last item
+                        print $0 ","
+                        next
+                    }
+                    { print }
+                ' "$STATE_FILE" > "$temp_file" && mv "$temp_file" "$STATE_FILE"
+            else
+                # Config is empty - just add the new key without comma
+                awk -v key="$key" -v val="$escaped_value" '
+                    /"config": *\{/ { in_config=1 }
+                    in_config && /^  \}/ {
+                        print "    \"" key "\": \"" val "\""
+                        in_config=0
+                    }
+                    { print }
+                ' "$STATE_FILE" > "$temp_file" && mv "$temp_file" "$STATE_FILE"
+            fi
         fi
     fi
 }

@@ -437,6 +437,17 @@ wizard_synology() {
         # Finalize rffmpeg setup (persist dir + default key location)
         finalize_rffmpeg_setup "$jellyfin_config"
 
+        # Fix transcodes directory permissions for NFS write access from Mac
+        # Mac user has different UID, so we need world-writable permissions
+        if [[ -d "${cache_path}/transcodes" ]]; then
+            sudo chmod 777 "${cache_path}/transcodes"
+            show_result true "Transcodes directory permissions fixed"
+        else
+            sudo mkdir -p "${cache_path}/transcodes"
+            sudo chmod 777 "${cache_path}/transcodes"
+            show_result true "Transcodes directory created with correct permissions"
+        fi
+
         # Use default weight 2 (weight only matters with multiple Macs)
         local weight=2
 

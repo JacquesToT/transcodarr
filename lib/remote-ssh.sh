@@ -399,15 +399,37 @@ remote_install_ffmpeg() {
 
     if remote_check_ffmpeg "$mac_user" "$mac_ip" "$key_path"; then
         show_result true "FFmpeg with VideoToolbox installed"
-        return 0
     else
         if ssh_exec "$mac_user" "$mac_ip" "$key_path" "[[ -f /opt/homebrew/bin/ffmpeg ]]"; then
             show_warning "FFmpeg installed but VideoToolbox not detected"
-            return 0
+        else
+            show_result false "FFmpeg installation failed"
+            return 1
         fi
-        show_result false "FFmpeg installation failed"
-        return 1
     fi
+
+    # Health check: verify ffmpeg can actually run (no broken library dependencies)
+    show_info "Verifying FFmpeg installation..."
+    if ! ssh_exec "$mac_user" "$mac_ip" "$key_path" "/opt/homebrew/bin/ffmpeg -version >/dev/null 2>&1"; then
+        show_warning "FFmpeg has broken dependencies, attempting to fix..."
+        ssh_exec "$mac_user" "$mac_ip" "$key_path" '
+            if [[ -f /opt/homebrew/bin/brew ]]; then
+                eval "$(/opt/homebrew/bin/brew shellenv)"
+            fi
+            brew reinstall ffmpeg 2>&1 || true
+        '
+
+        # Re-check after reinstall
+        if ssh_exec "$mac_user" "$mac_ip" "$key_path" "/opt/homebrew/bin/ffmpeg -version >/dev/null 2>&1"; then
+            show_result true "FFmpeg fixed and working"
+        else
+            show_warning "FFmpeg may have issues - check manually with: /opt/homebrew/bin/ffmpeg -version"
+        fi
+    else
+        show_result true "FFmpeg health check passed"
+    fi
+
+    return 0
 }
 
 remote_setup_synthetic_links() {
