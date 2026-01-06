@@ -41,11 +41,12 @@ class TranscodarrMonitor(App):
     }
 
     TabPane {
+        height: 1fr;
         padding: 1;
     }
 
     #nodes-container {
-        height: 100%;
+        height: 1fr;
         overflow-y: auto;
     }
 
@@ -184,13 +185,6 @@ class TranscodarrMonitor(App):
         all_jobs: list
     ) -> None:
         """Update the node cards display."""
-        import os
-        debug_file = os.path.expanduser("~/.transcodarr/monitor_debug.log")
-        with open(debug_file, "a") as f:
-            f.write(f"\n--- _update_node_cards ---\n")
-            f.write(f"nodes count: {len(nodes)}\n")
-            f.write(f"nodes: {nodes}\n")
-
         container = self.query_one("#nodes-container", VerticalScroll)
 
         if not nodes:
@@ -229,43 +223,24 @@ class TranscodarrMonitor(App):
                 card.remove()
 
         # Update or create cards for each node
-        with open(debug_file, "a") as f:
-            f.write(f"Creating/updating cards for {len(nodes)} nodes\n")
-            f.write(f"existing cards: {list(self._node_cards.keys())}\n")
-
         for node in nodes:
             node_jobs = jobs_by_node.get(node.ip, [])
 
-            with open(debug_file, "a") as f:
-                f.write(f"Processing node: {node.ip}, is_online={node.is_online}\n")
-
             if node.ip in self._node_cards:
                 # Update existing card
-                with open(debug_file, "a") as f:
-                    f.write(f"Updating existing card for {node.ip}\n")
                 self._node_cards[node.ip].update_node(
                     node, node_jobs, self._compact_mode
                 )
             else:
                 # Create new card
-                with open(debug_file, "a") as f:
-                    f.write(f"Creating NEW card for {node.ip}\n")
-                try:
-                    card = NodeCard(
-                        node=node,
-                        jobs=node_jobs,
-                        compact=self._compact_mode,
-                        id=f"node-{node.ip.replace('.', '-')}"
-                    )
-                    self._node_cards[node.ip] = card
-                    await container.mount(card)
-                    with open(debug_file, "a") as f:
-                        f.write(f"Successfully mounted card for {node.ip}\n")
-                except Exception as e:
-                    with open(debug_file, "a") as f:
-                        f.write(f"ERROR mounting card for {node.ip}: {e}\n")
-                        import traceback
-                        f.write(traceback.format_exc())
+                card = NodeCard(
+                    node=node,
+                    jobs=node_jobs,
+                    compact=self._compact_mode,
+                    id=f"node-{node.ip.replace('.', '-')}"
+                )
+                self._node_cards[node.ip] = card
+                await container.mount(card)
 
     def _render_config(self) -> str:
         """Render the config panel content."""

@@ -400,39 +400,15 @@ class DataCollector:
             )
 
             output = stdout.decode().strip()
-            error = stderr.decode().strip()
-
-            # Debug: log to file
-            import os
-            debug_file = os.path.expanduser("~/.transcodarr/monitor_debug.log")
-            os.makedirs(os.path.dirname(debug_file), exist_ok=True)
-            with open(debug_file, "a") as f:
-                f.write(f"\n--- rffmpeg status ---\n")
-                f.write(f"cmd: {cmd}\n")
-                f.write(f"returncode: {proc.returncode}\n")
-                f.write(f"stdout: {output[:500]}\n")
-                f.write(f"stderr: {error[:200]}\n")
 
             if not output or proc.returncode != 0:
                 return []
 
             hosts = self._parse_rffmpeg_status(output)
-
-            # Debug: log parsed hosts
-            with open(debug_file, "a") as f:
-                f.write(f"parsed hosts: {hosts}\n")
-
             self._data.rffmpeg_hosts = hosts
             return hosts
 
-        except Exception as e:
-            # Debug: log exception
-            import os
-            debug_file = os.path.expanduser("~/.transcodarr/monitor_debug.log")
-            os.makedirs(os.path.dirname(debug_file), exist_ok=True)
-            with open(debug_file, "a") as f:
-                f.write(f"\n--- rffmpeg status EXCEPTION ---\n")
-                f.write(f"error: {e}\n")
+        except Exception:
             return []
 
     def _parse_rffmpeg_status(self, output: str) -> list[dict]:
@@ -557,23 +533,11 @@ class DataCollector:
         SSH to each Mac node and collect CPU, memory, network stats.
         Also gets active ffmpeg processes with details.
         """
-        # Debug logging
-        import os
-        debug_file = os.path.expanduser("~/.transcodarr/monitor_debug.log")
-
-        with open(debug_file, "a") as f:
-            f.write(f"\n--- get_all_node_stats ---\n")
-            f.write(f"rffmpeg_hosts: {self._data.rffmpeg_hosts}\n")
-
         if not self._data.rffmpeg_hosts:
-            with open(debug_file, "a") as f:
-                f.write("No hosts, returning empty\n")
             return []
 
         # Get mac_user from config (for SSH to Mac nodes)
         mac_user = self._get_mac_user()
-        with open(debug_file, "a") as f:
-            f.write(f"mac_user: {mac_user}\n")
 
         # Collect stats for all nodes in parallel
         tasks = []
@@ -586,9 +550,6 @@ class DataCollector:
                 except (ValueError, TypeError):
                     weight = 1
 
-                with open(debug_file, "a") as f:
-                    f.write(f"Creating task for {ip}\n")
-
                 tasks.append(self._get_single_node_stats(
                     ip=ip,
                     mac_user=mac_user,
@@ -598,15 +559,7 @@ class DataCollector:
 
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            with open(debug_file, "a") as f:
-                f.write(f"gather results: {results}\n")
-
             node_stats = [r for r in results if isinstance(r, NodeStats)]
-
-            with open(debug_file, "a") as f:
-                f.write(f"filtered node_stats: {node_stats}\n")
-
             self._data.node_stats = node_stats
             return node_stats
 
@@ -669,14 +622,6 @@ class DataCollector:
                     f'{mac_user}@{ip} "{stats_script}"'
                 )
                 cmd = self.config.get_docker_command(ssh_in_container)
-
-                # Debug: log the command
-                import os
-                debug_file = os.path.expanduser("~/.transcodarr/monitor_debug.log")
-                with open(debug_file, "a") as f:
-                    f.write(f"\n--- SSH to Mac ---\n")
-                    f.write(f"cmd: {cmd}\n")
-                    f.write(f"ssh_in_container: {ssh_in_container}\n")
             else:
                 # On Mac: run SSH directly
                 cmd = [
@@ -702,14 +647,6 @@ class DataCollector:
 
             output = stdout.decode()
             error_output = stderr.decode().strip()
-
-            # Debug: log SSH result
-            import os
-            debug_file = os.path.expanduser("~/.transcodarr/monitor_debug.log")
-            with open(debug_file, "a") as f:
-                f.write(f"SSH returncode: {proc.returncode}\n")
-                f.write(f"SSH stdout: {output[:300]}\n")
-                f.write(f"SSH stderr: {error_output[:200]}\n")
 
             # Check for our marker in output - don't rely on return code
             # because `grep ffmpeg` returns exit 1 when no processes found
