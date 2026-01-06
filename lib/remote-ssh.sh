@@ -343,8 +343,17 @@ remote_install_homebrew() {
 
     show_info "Installing Homebrew on Mac..."
     show_info "This may take a few minutes..."
+    echo ""
+    show_warning ">>> Enter your MAC password when prompted <<<"
+    echo ""
 
-    ssh_exec "$mac_user" "$mac_ip" "$key_path" \
+    # Use -tt for TTY allocation so sudo can prompt for password
+    ssh -tt \
+        -o ConnectTimeout=30 \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -i "$key_path" \
+        "${mac_user}@${mac_ip}" \
         'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
 
     ssh_exec "$mac_user" "$mac_ip" "$key_path" \

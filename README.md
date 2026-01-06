@@ -189,7 +189,9 @@ git clone https://github.com/MrCee/Synology-Homebrew.git ~/Synology-Homebrew
 ~/Synology-Homebrew/install-synology-homebrew.sh
 ```
 
-When prompted, select **option 1 (Minimal installation)**.
+When prompted, select **option 1 (Minimal installation)**. This can take some time.
+
+When asked `Prune these back to minimal now? [y/N]:` select **N** (no).
 
 After installation:
 ```bash
