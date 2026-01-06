@@ -211,27 +211,30 @@ install_jellyfin_ffmpeg() {
     fi
 
     # Step 4: Find and copy binaries
-    local app_frameworks="${mount_point}/Jellyfin.app/Contents/Frameworks"
+    # FFmpeg is in Contents/MacOS/, not Contents/Frameworks/
+    local app_macos="${mount_point}/Jellyfin.app/Contents/MacOS"
 
-    if [[ ! -d "$app_frameworks" ]]; then
-        show_error "FFmpeg binaries not found in DMG"
-        hdiutil detach "$mount_point" -force 2>/dev/null || true
-        rm -f "$dmg_file"
-        rmdir "$mount_point" 2>/dev/null || true
-        return 1
+    if [[ ! -f "${app_macos}/ffmpeg" ]]; then
+        show_error "FFmpeg binaries not found in DMG at ${app_macos}"
+        show_info "Checking alternative locations..."
+        # Try alternative locations
+        if [[ -f "${mount_point}/Jellyfin.app/Contents/Frameworks/ffmpeg" ]]; then
+            app_macos="${mount_point}/Jellyfin.app/Contents/Frameworks"
+            show_info "Found in Frameworks/"
+        else
+            hdiutil detach "$mount_point" -force 2>/dev/null || true
+            rm -f "$dmg_file"
+            rmdir "$mount_point" 2>/dev/null || true
+            return 1
+        fi
     fi
 
-    show_info "Extracting FFmpeg binaries..."
+    show_info "Extracting FFmpeg binaries from ${app_macos}..."
     sudo mkdir -p "$JELLYFIN_FFMPEG_DIR"
 
     # Copy ffmpeg and ffprobe
-    if [[ -f "${app_frameworks}/ffmpeg" ]]; then
-        sudo cp "${app_frameworks}/ffmpeg" "$JELLYFIN_FFMPEG_BIN"
-        sudo cp "${app_frameworks}/ffprobe" "$JELLYFIN_FFPROBE_BIN"
-    else
-        # Alternative: copy all frameworks
-        sudo cp -R "${app_frameworks}/"* "$JELLYFIN_FFMPEG_DIR/" 2>/dev/null || true
-    fi
+    sudo cp "${app_macos}/ffmpeg" "$JELLYFIN_FFMPEG_BIN"
+    sudo cp "${app_macos}/ffprobe" "$JELLYFIN_FFPROBE_BIN"
 
     # Step 5: Unmount and cleanup
     hdiutil detach "$mount_point" -force 2>/dev/null || true

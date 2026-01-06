@@ -476,23 +476,27 @@ remote_install_jellyfin_ffmpeg() {
         fi
 
         # Find and copy binaries
-        APP_FRAMEWORKS="${MOUNT_POINT}/Jellyfin.app/Contents/Frameworks"
-        if [[ ! -d "$APP_FRAMEWORKS" ]]; then
-            echo "ERROR: FFmpeg not found in DMG"
-            hdiutil detach "$MOUNT_POINT" -force 2>/dev/null || true
-            rm -f "$DMG_FILE"
-            exit 1
+        # FFmpeg is in Contents/MacOS/, not Contents/Frameworks/
+        APP_MACOS="${MOUNT_POINT}/Jellyfin.app/Contents/MacOS"
+
+        if [[ ! -f "${APP_MACOS}/ffmpeg" ]]; then
+            echo "FFmpeg not found in MacOS/, checking Frameworks/..."
+            if [[ -f "${MOUNT_POINT}/Jellyfin.app/Contents/Frameworks/ffmpeg" ]]; then
+                APP_MACOS="${MOUNT_POINT}/Jellyfin.app/Contents/Frameworks"
+                echo "Found in Frameworks/"
+            else
+                echo "ERROR: FFmpeg not found in DMG"
+                hdiutil detach "$MOUNT_POINT" -force 2>/dev/null || true
+                rm -f "$DMG_FILE"
+                exit 1
+            fi
         fi
 
-        echo "Extracting FFmpeg binaries..."
+        echo "Extracting FFmpeg binaries from ${APP_MACOS}..."
         sudo mkdir -p "$JELLYFIN_FFMPEG_DIR"
 
-        if [[ -f "${APP_FRAMEWORKS}/ffmpeg" ]]; then
-            sudo cp "${APP_FRAMEWORKS}/ffmpeg" "${JELLYFIN_FFMPEG_DIR}/ffmpeg"
-            sudo cp "${APP_FRAMEWORKS}/ffprobe" "${JELLYFIN_FFMPEG_DIR}/ffprobe"
-        else
-            sudo cp -R "${APP_FRAMEWORKS}/"* "${JELLYFIN_FFMPEG_DIR}/"
-        fi
+        sudo cp "${APP_MACOS}/ffmpeg" "${JELLYFIN_FFMPEG_DIR}/ffmpeg"
+        sudo cp "${APP_MACOS}/ffprobe" "${JELLYFIN_FFMPEG_DIR}/ffprobe"
 
         # Cleanup
         echo "Cleaning up..."
@@ -609,8 +613,12 @@ remote_install_ffmpeg() {
         # Offer upgrade if configured for jellyfin
         if [[ "$variant" == "jellyfin" ]]; then
             echo ""
-            show_info "For HDR/Dolby Vision support, upgrading to jellyfin-ffmpeg..."
-            remote_install_jellyfin_ffmpeg "$mac_user" "$mac_ip" "$key_path"
+            show_info "jellyfin-ffmpeg provides HDR/HDR10+/Dolby Vision support"
+            if ask_confirm "Upgrade to jellyfin-ffmpeg for HDR support?"; then
+                remote_install_jellyfin_ffmpeg "$mac_user" "$mac_ip" "$key_path"
+            else
+                show_info "Keeping Homebrew FFmpeg (SDR transcoding only)"
+            fi
         fi
         return 0
     fi
