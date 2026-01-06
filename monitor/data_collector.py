@@ -711,7 +711,9 @@ class DataCollector:
                 f.write(f"SSH stdout: {output[:300]}\n")
                 f.write(f"SSH stderr: {error_output[:200]}\n")
 
-            if proc.returncode == 0 and "STATS_CPU_START" in output:
+            # Check for our marker in output - don't rely on return code
+            # because `grep ffmpeg` returns exit 1 when no processes found
+            if "STATS_CPU_START" in output:
                 node.is_online = True
                 self._parse_mac_stats(output, node)
             else:
@@ -726,7 +728,7 @@ class DataCollector:
                 elif error_output:
                     node.error = error_output[:40]
                 else:
-                    node.error = f"Exit code {proc.returncode}"
+                    node.error = f"No stats data"
 
         except asyncio.TimeoutError:
             node.is_online = False
