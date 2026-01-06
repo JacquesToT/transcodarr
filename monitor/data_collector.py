@@ -560,7 +560,8 @@ class DataCollector:
     ) -> NodeStats:
         """Get stats for a single Mac node via SSH.
 
-        Uses asyncio.create_subprocess_exec for safe command execution.
+        On Synology: SSH is executed FROM the jellyfin container (which has keys)
+        On Mac: SSH is executed directly from host
         """
         node = NodeStats(
             hostname=f"{mac_user}@{ip}",
@@ -570,29 +571,44 @@ class DataCollector:
         )
 
         try:
-            # Build SSH command with explicit argument list (safe from injection)
-            ssh_args = [
-                "ssh",
-                "-o", "ConnectTimeout=3",
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "LogLevel=ERROR",
-                "-o", "BatchMode=yes",
-                f"{mac_user}@{ip}",
-                # Single remote command to get all stats
+            # Remote command to get all Mac stats
+            stats_script = (
                 'echo "===CPU===" && top -l 1 -n 0 | grep "CPU usage" && '
                 'echo "===MEM===" && vm_stat | head -10 && sysctl hw.memsize && '
                 'echo "===FFMPEG===" && ps aux | grep -E "[f]fmpeg" | head -10'
-            ]
+            )
+
+            if self.config.is_synology:
+                # On Synology: run SSH from inside the jellyfin container
+                # The container has SSH keys set up for Mac nodes
+                ssh_in_container = (
+                    f'ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no '
+                    f'-o UserKnownHostsFile=/dev/null -o LogLevel=ERROR '
+                    f'-o BatchMode=yes -i /config/rffmpeg/.ssh/id_rsa '
+                    f'{mac_user}@{ip} \'{stats_script}\''
+                )
+                cmd = self.config.get_docker_command(ssh_in_container)
+            else:
+                # On Mac: run SSH directly
+                cmd = [
+                    "ssh",
+                    "-o", "ConnectTimeout=3",
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "UserKnownHostsFile=/dev/null",
+                    "-o", "LogLevel=ERROR",
+                    "-o", "BatchMode=yes",
+                    f"{mac_user}@{ip}",
+                    stats_script
+                ]
 
             proc = await asyncio.create_subprocess_exec(
-                *ssh_args,
+                *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(),
-                timeout=5
+                timeout=10
             )
 
             if proc.returncode == 0:
@@ -600,7 +616,8 @@ class DataCollector:
                 self._parse_mac_stats(stdout.decode(), node)
             else:
                 node.is_online = False
-                node.error = stderr.decode().strip()[:50] or "SSH failed"
+                error_msg = stderr.decode().strip()[:50] or "SSH failed"
+                node.error = error_msg
 
         except asyncio.TimeoutError:
             node.is_online = False
