@@ -113,6 +113,25 @@ services:
 
 > **Note:** Find your PUID/PGID by running `id` in SSH on your Synology.
 
+### Fix Permissions (if Jellyfin won't start)
+
+If Jellyfin fails to start, fix the folder permissions:
+
+```bash
+# Stop the container
+sudo docker stop jellyfin
+
+# Fix ownership (replace 1026:100 with your PUID:PGID)
+sudo chown -R 1026:100 /volume1/docker/jellyfin
+sudo chmod -R 755 /volume1/docker/jellyfin
+
+# Verify - should show your user and "users" group
+ls -la /volume1/docker/jellyfin
+
+# Start container
+sudo docker start jellyfin
+```
+
 > ⏳ **FFmpeg takes a while to install** (compiling from source). Be patient and make sure Jellyfin is started before running the installer.
 
 ---
