@@ -73,6 +73,8 @@ class NodeCard(Container):
         debug_file = os.path.expanduser("~/.transcodarr/monitor_debug.log")
         with open(debug_file, "a") as f:
             f.write(f"\n--- NodeCard.compose() called for {self.node.ip} ---\n")
+        # Test: yield hardcoded content to see if ANYTHING renders
+        yield Static(f"[bold red]TEST NODE: {self.node.ip}[/bold red]", id="node-test")
         yield Static(id="node-header")
         yield Static(id="node-stats")
         yield Vertical(id="node-jobs")
