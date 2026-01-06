@@ -476,3 +476,176 @@ filtered node_stats: [NodeStats(hostname='nick@192.168.175.43', ip='192.168.175.
 2. Check of NodeCard widgets daadwerkelijk worden gemount
 3. Check of er een exception wordt gegooid tijdens render
 4. Voeg debug logging toe aan `_update_node_cards()` in transcodarr_monitor.py
+
+---
+---
+
+# Issue 4: rffmpeg Remote 255 na Install - 2026-01-06
+
+## Status: 🔍 ONDERZOEK
+
+## Probleem
+Na het draaien van de installer krijgt rffmpeg "remote 255" errors en markeert hosts als "bad".
+
+## Root Causes Gevonden
+
+### Oorzaak 1: SSH key niet op default locatie
+- **Probleem:** rffmpeg zoekt standaard naar `/var/lib/jellyfin/.ssh/id_rsa`
+- **Installer deed:** Alleen kopiëren naar `/config/rffmpeg/.ssh/id_rsa`
+- **Status:** ✅ GEFIXED in `finalize_rffmpeg_setup()`
+
+### Oorzaak 2: Persist directory ontbreekt
+- **Probleem:** `/config/rffmpeg/persist/` voor SSH ControlMaster ontbrak
+- **Error:** `unix_listener: cannot bind to path /config/rffmpeg/persist/ssh-*`
+- **Status:** ✅ GEFIXED in `finalize_rffmpeg_setup()`
+
+### Oorzaak 3: Parent directory permissions
+- **Probleem:** `/var/lib/jellyfin/` had permissions `drwxr-x---` met owner `jellyfin:adm`
+- **abc user:** uid=1026, group=users (NIET in adm group)
+- **Gevolg:** abc user kon niet in `/var/lib/jellyfin/` komen om `.ssh/` te lezen
+- **Fix:** `chmod 755 /var/lib/jellyfin`
+- **Status:** ✅ GEFIXED in `finalize_rffmpeg_setup()`
+
+### Oorzaak 4: Bad host caching
+- **Probleem:** rffmpeg cached "bad" host status in SQLite database
+- **Gevolg:** Zelfs na fixes blijft host als "bad" gemarkeerd
+- **Fix:** `rffmpeg init` + `rffmpeg add` opnieuw uitvoeren
+- **Status:** ⚠️ Handmatige stap nodig na fixes
+
+## Handmatige Fix Procedure
+
+```bash
+# 1. Finalize setup (persist dir + keys + permissions)
+sudo docker exec jellyfin bash -c '
+    mkdir -p /config/rffmpeg/persist
+    chown abc:abc /config/rffmpeg/persist
+    chmod 755 /config/rffmpeg/persist
+    mkdir -p /var/lib/jellyfin/.ssh
+    chmod 755 /var/lib/jellyfin
+    cp /config/rffmpeg/.ssh/id_rsa /var/lib/jellyfin/.ssh/id_rsa
+    cp /config/rffmpeg/.ssh/id_rsa.pub /var/lib/jellyfin/.ssh/id_rsa.pub
+    chown -R abc:abc /var/lib/jellyfin/.ssh
+    chmod 700 /var/lib/jellyfin/.ssh
+    chmod 600 /var/lib/jellyfin/.ssh/id_rsa
+'
+
+# 2. Reset rffmpeg database (clears "bad" host cache)
+sudo docker exec -i jellyfin rffmpeg init <<< "y"
+sudo docker exec jellyfin rffmpeg add <MAC_IP> --weight 2
+
+# 3. Verify SSH werkt als abc user
+sudo docker exec -u abc jellyfin ssh -o BatchMode=yes -o ConnectTimeout=5 \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -i /var/lib/jellyfin/.ssh/id_rsa nick@<MAC_IP> "echo OK"
+```
+
+## Installer Fixes Toegevoegd
+
+**`lib/jellyfin-setup.sh` - `finalize_rffmpeg_setup()` functie:**
+- Maakt persist directory aan
+- Kopieert keys naar `/var/lib/jellyfin/.ssh/`
+- Zet `chmod 755 /var/lib/jellyfin` voor abc user access
+- Verifieert dat abc user key kan lezen
+
+**`install.sh`:**
+- Roept `finalize_rffmpeg_setup()` aan na Jellyfin startup bevestiging
+
+## Nog Te Onderzoeken
+
+- Monitor werkt nog steeds niet na alle fixes - verdere debugging nodig
+
+---
+
+### Oorzaak 5: Broken ffmpeg op Mac (Homebrew dependencies)
+- **Probleem:** ffmpeg op Mac had broken library links na Homebrew updates
+- **Errors:**
+  - `Library not loaded: /opt/homebrew/opt/libxcb/lib/libxcb.1.dylib`
+  - `Library not loaded: /opt/homebrew/opt/libvpx/lib/libvpx.11.dylib`
+- **Fix:** `brew reinstall ffmpeg` op de Mac
+- **Status:** ✅ GEFIXED (handmatig)
+- **Installer TODO:** Check ffmpeg werkt op Mac voordat setup compleet is
+
+---
+
+## Installer Verbeteringen Nodig
+
+Na deze debug sessie, de installer moet:
+
+1. **finalize_rffmpeg_setup()** - ✅ Toegevoegd
+   - Persist directory aanmaken
+   - Keys naar default locatie kopiëren
+   - Parent dir permissions fixen
+
+2. **ffmpeg health check op Mac** - ❌ NOG TE DOEN
+   - Na ffmpeg install, run `/opt/homebrew/bin/ffmpeg -version`
+   - Als dit faalt met dyld errors: `brew reinstall ffmpeg`
+   - Pas doorgaan als ffmpeg werkt
+
+3. **NFS mount verificatie** - ❌ NOG TE DOEN
+   - Check of `/data/media/` leesbaar is op Mac
+   - Check of `/config/cache/` schrijfbaar is op Mac
+   - Toon duidelijke error als mounts niet werken
+
+4. **rffmpeg end-to-end test** - ❌ NOG TE DOEN
+   - Na volledige setup, run een test transcode
+   - Verifieer dat Mac daadwerkelijk transcodes uitvoert
+   - Reset "bad" host cache als test faalt en retry
+
+5. **Debug mode tijdelijk aan** - ❌ NOG TE DOEN
+   - Zet debug: true tijdens eerste test
+   - Als test slaagt, zet debug: false
+   - Geeft meer info bij problemen
+
+---
+---
+
+# Issue 5: Homebrew ffmpeg vs Jellyfin-ffmpeg Compatibility - 2026-01-06
+
+## Status: 🔍 BEKEND PROBLEEM
+
+## Probleem
+Homebrew ffmpeg mist filters en codecs die Jellyfin-ffmpeg wel heeft:
+- `tonemapx` filter (HDR-to-SDR) - **niet in Homebrew ffmpeg**
+- `libfdk_aac` encoder - **niet in Homebrew ffmpeg** (patent issues)
+
+## Gevolgen
+- HDR content faalt met exit code 8 (tonemapx filter not found)
+- Audio encoding valt terug op standaard `aac` (werkt meestal wel)
+
+## Workarounds
+
+### Voor HDR content:
+1. **Zet tonemapping uit in Jellyfin** (Dashboard > Playback > Transcoding)
+   - Probleem: HDR wordt niet naar SDR geconverteerd, kleuren kunnen fout zijn
+2. **Direct Play HDR** - geen transcoding nodig als client HDR ondersteunt
+3. **Gebruik alleen niet-HDR content** voor Mac transcoding
+
+### Voor betere compatibiliteit:
+Homebrew ffmpeg mist sommige features. Alternatieven:
+1. Bouw ffmpeg met extra opties: `brew install ffmpeg --with-fdk-aac` (als beschikbaar)
+2. Gebruik een custom ffmpeg build met tonemapx support
+3. Accepteer dat HDR content op de Synology fallback gebruikt
+
+## Test Commands
+
+```bash
+# Check beschikbare filters
+/opt/homebrew/bin/ffmpeg -filters 2>&1 | grep tonemap
+
+# Check beschikbare encoders
+/opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -E "(aac|fdk)"
+
+# Test simpele transcode (zou moeten werken)
+/opt/homebrew/bin/ffmpeg -i "/data/media/movies/<test>.mkv" -t 5 -c:v libx264 -c:a aac -f mp4 /config/cache/transcodes/test.mp4
+```
+
+## Status per Content Type
+
+| Content Type | Status | Notes |
+|-------------|--------|-------|
+| SDR H.264 | ✅ Werkt | Geen speciale filters nodig |
+| SDR HEVC | ✅ Werkt | Homebrew heeft libx265 |
+| HDR HEVC | ❌ Faalt | Mist tonemapx filter |
+| Dolby Vision | ❌ Faalt | Mist DV processing |
+| Audio (AAC) | ✅ Werkt | Gebruikt standaard aac encoder |
+| Audio (TrueHD) | ⚠️ Varieert | Decoding werkt, encoding naar aac |
