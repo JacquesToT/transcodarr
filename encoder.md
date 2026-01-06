@@ -334,3 +334,719 @@ HDR content will automatically fall back to Synology via rffmpeg.
 - [rffmpeg GitHub](https://github.com/joshuaboniface/rffmpeg)
 - [Homebrew FFmpeg Tap](https://github.com/homebrew-ffmpeg/homebrew-ffmpeg)
 - [libplacebo Documentation](https://libplacebo.org/options/)
+
+---
+
+# Implementation Plan: jellyfin-ffmpeg in Transcodarr Installer
+
+Dit gedeelte documenteert de geplande wijzigingen om jellyfin-ffmpeg support toe te voegen aan de Transcodarr installer.
+
+## Huidige Architectuur Analyse
+
+### FFmpeg Installatie Flow
+
+```
+┌─────────────────┐    ┌──────────────────────┐    ┌─────────────────┐
+│   install.sh    │───▶│   lib/mac-setup.sh   │───▶│ Homebrew FFmpeg │
+│  (entry point)  │    │   install_ffmpeg()   │    │  /opt/homebrew  │
+└─────────────────┘    └──────────────────────┘    └─────────────────┘
+         │
+         ▼
+┌─────────────────┐    ┌──────────────────────┐    ┌─────────────────┐
+│   add-node.sh   │───▶│  lib/remote-ssh.sh   │───▶│ Homebrew FFmpeg │
+│  (remote Mac)   │    │remote_install_ffmpeg │    │   via SSH       │
+└─────────────────┘    └──────────────────────┘    └─────────────────┘
+         │
+         ▼
+┌─────────────────┐    ┌──────────────────────┐    ┌─────────────────┐
+│  jellyfin-setup │───▶│   rffmpeg.yml        │───▶│ Path hardcoded: │
+│     .sh         │    │  create_rffmpeg_...  │    │ /opt/homebrew/  │
+└─────────────────┘    └──────────────────────┘    └─────────────────┘
+```
+
+### Bestanden en Functies Betrokken
+
+#### 1. `lib/mac-setup.sh` (Lokale Mac Installatie)
+
+| Regel | Functie | Huidige Werking | Wijziging Nodig |
+|-------|---------|-----------------|-----------------|
+| 61-64 | `check_ffmpeg()` | Checkt `/opt/homebrew/bin/ffmpeg` + VideoToolbox | Uitbreiden voor jellyfin-ffmpeg |
+| 66-69 | `check_ffmpeg_fdk_aac()` | Checkt libfdk_aac encoder | Ongewijzigd |
+| 71-131 | `install_ffmpeg()` | Installeert via `brew install homebrew-ffmpeg/...` | Optie toevoegen voor jellyfin-ffmpeg |
+
+```bash
+# Huidige check_ffmpeg():
+check_ffmpeg() {
+    [[ -f "/opt/homebrew/bin/ffmpeg" ]] && \
+        /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "videotoolbox"
+}
+```
+
+**Probleem:** Checkt alleen Homebrew locatie, niet jellyfin-ffmpeg.
+
+#### 2. `lib/remote-ssh.sh` (Remote Mac via SSH)
+
+| Regel | Functie | Huidige Werking | Wijziging Nodig |
+|-------|---------|-----------------|-----------------|
+| 290-296 | `remote_check_ffmpeg()` | SSH check voor `/opt/homebrew/bin/ffmpeg` | Uitbreiden voor jellyfin-ffmpeg |
+| 375-432 | `remote_install_ffmpeg()` | SSH installatie via Homebrew | Optie toevoegen voor jellyfin-ffmpeg |
+
+```bash
+# Huidige remote_check_ffmpeg():
+remote_check_ffmpeg() {
+    ssh_exec "$mac_user" "$mac_ip" "$key_path" \
+        "[[ -f /opt/homebrew/bin/ffmpeg ]] && /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q videotoolbox"
+}
+```
+
+**Probleem:** Identiek aan lokale check - alleen Homebrew pad.
+
+#### 3. `lib/jellyfin-setup.sh` (rffmpeg Configuratie)
+
+| Regel | Functie | Huidige Werking | Wijziging Nodig |
+|-------|---------|-----------------|-----------------|
+| 184-227 | `create_rffmpeg_config()` | Genereert rffmpeg.yml met hardcoded paden | Dynamisch pad op basis van installatie |
+
+```yaml
+# Huidige hardcoded paden in rffmpeg.yml:
+commands:
+    ffmpeg: "/opt/homebrew/bin/ffmpeg"
+    ffprobe: "/opt/homebrew/bin/ffprobe"
+```
+
+**Probleem:** Pad is hardcoded, ondersteunt geen jellyfin-ffmpeg.
+
+#### 4. `lib/detection.sh` (Systeem Detectie)
+
+| Regel | Functie | Huidige Werking | Wijziging Nodig |
+|-------|---------|-----------------|-----------------|
+| 215-217 | `is_ffmpeg_installed()` | Checkt `command -v ffmpeg` of Homebrew pad | Uitbreiden voor jellyfin-ffmpeg |
+| 220-228 | `has_videotoolbox()` | Checkt VideoToolbox encoder | Ongewijzigd |
+
+#### 5. `rffmpeg/rffmpeg.yml` (Template)
+
+```yaml
+# Huidige template:
+commands:
+    ffmpeg: "/opt/homebrew/bin/ffmpeg"     # ← Moet configureerbaar zijn
+    ffprobe: "/opt/homebrew/bin/ffprobe"   # ← Moet configureerbaar zijn
+```
+
+#### 6. `lib/state.sh` (State Management)
+
+Geen directe wijzigingen nodig, maar nieuwe config keys toevoegen:
+- `ffmpeg_variant`: `"homebrew"` of `"jellyfin"`
+- `ffmpeg_path`: Absoluut pad naar ffmpeg binary
+
+---
+
+## Implementatie Ontwerp
+
+### Nieuwe Constanten
+
+```bash
+# lib/constants.sh (nieuw bestand of toevoegen aan bestaand)
+JELLYFIN_FFMPEG_DIR="/opt/jellyfin-ffmpeg"
+JELLYFIN_FFMPEG_BIN="${JELLYFIN_FFMPEG_DIR}/ffmpeg"
+JELLYFIN_FFPROBE_BIN="${JELLYFIN_FFMPEG_DIR}/ffprobe"
+
+HOMEBREW_FFMPEG_BIN="/opt/homebrew/bin/ffmpeg"
+HOMEBREW_FFPROBE_BIN="/opt/homebrew/bin/ffprobe"
+
+JELLYFIN_RELEASES_URL="https://api.github.com/repos/jellyfin/jellyfin-server-macos/releases/latest"
+```
+
+### Nieuwe Functies in `lib/mac-setup.sh`
+
+#### 1. `check_jellyfin_ffmpeg()`
+
+**Doel:** Detecteren of jellyfin-ffmpeg is geïnstalleerd en werkend.
+
+```bash
+check_jellyfin_ffmpeg() {
+    # Check 1: Binary bestaat
+    [[ -f "$JELLYFIN_FFMPEG_BIN" ]] || return 1
+
+    # Check 2: Kan uitvoeren (geen quarantine/permissions issues)
+    "$JELLYFIN_FFMPEG_BIN" -version &>/dev/null || return 1
+
+    # Check 3: Heeft tonemapx filter (de reden dat we jellyfin-ffmpeg willen)
+    "$JELLYFIN_FFMPEG_BIN" -filters 2>&1 | grep -q "tonemapx" || return 1
+
+    # Check 4: Heeft VideoToolbox (hardware acceleratie)
+    "$JELLYFIN_FFMPEG_BIN" -encoders 2>&1 | grep -q "videotoolbox" || return 1
+
+    return 0
+}
+```
+
+**Waarom deze checks:**
+- Check 1: Basis aanwezigheid
+- Check 2: macOS quarantine kan execution blokkeren
+- Check 3: tonemapx is de primaire reden voor jellyfin-ffmpeg
+- Check 4: VideoToolbox is essentieel voor hardware transcoding
+
+#### 2. `get_jellyfin_ffmpeg_latest_version()`
+
+**Doel:** Ophalen van de laatste versie van jellyfin-ffmpeg.
+
+```bash
+get_jellyfin_ffmpeg_latest_version() {
+    local api_response
+    api_response=$(curl -sL "$JELLYFIN_RELEASES_URL")
+
+    # Parse JSON response voor tag_name
+    # Formaat: "tag_name": "v10.9.11"
+    echo "$api_response" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*: *"\(.*\)"/\1/'
+}
+```
+
+#### 3. `download_jellyfin_ffmpeg()`
+
+**Doel:** Download de juiste jellyfin-ffmpeg voor het platform.
+
+```bash
+download_jellyfin_ffmpeg() {
+    local version="${1:-$(get_jellyfin_ffmpeg_latest_version)}"
+    local arch=$(uname -m)
+    local download_url=""
+    local dmg_file="/tmp/jellyfin-${version}.dmg"
+
+    # Bepaal architecture
+    case "$arch" in
+        arm64)
+            download_url="https://github.com/jellyfin/jellyfin-server-macos/releases/download/${version}/jellyfin_${version#v}-arm64.dmg"
+            ;;
+        x86_64)
+            download_url="https://github.com/jellyfin/jellyfin-server-macos/releases/download/${version}/jellyfin_${version#v}-x64.dmg"
+            ;;
+        *)
+            show_error "Unsupported architecture: $arch"
+            return 1
+            ;;
+    esac
+
+    show_info "Downloading jellyfin-ffmpeg ${version}..."
+
+    if curl -L -o "$dmg_file" "$download_url" 2>&1; then
+        echo "$dmg_file"
+        return 0
+    else
+        show_error "Download failed"
+        return 1
+    fi
+}
+```
+
+**Waarom DMG i.p.v. tar.gz:**
+- Jellyfin Server macOS releases zijn betrouwbaarder beschikbaar
+- Bevatten gegarandeerd werkende binaries voor macOS
+- Standalone jellyfin-ffmpeg builds zijn niet altijd beschikbaar voor macOS
+
+#### 4. `install_jellyfin_ffmpeg()`
+
+**Doel:** Volledige installatie van jellyfin-ffmpeg.
+
+```bash
+install_jellyfin_ffmpeg() {
+    # Check of al geïnstalleerd
+    if check_jellyfin_ffmpeg; then
+        show_skip "jellyfin-ffmpeg is already installed"
+        return 0
+    fi
+
+    show_what_this_does "Installing jellyfin-ffmpeg for full HDR/Dolby Vision support."
+
+    local version
+    version=$(get_jellyfin_ffmpeg_latest_version)
+
+    if [[ -z "$version" ]]; then
+        show_error "Could not determine latest jellyfin-ffmpeg version"
+        show_info "Check your internet connection"
+        return 1
+    fi
+
+    show_info "Latest version: $version"
+
+    # Stap 1: Download DMG
+    local dmg_file
+    dmg_file=$(download_jellyfin_ffmpeg "$version")
+
+    if [[ ! -f "$dmg_file" ]]; then
+        show_error "Download failed"
+        return 1
+    fi
+
+    # Stap 2: Mount DMG
+    local mount_point="/tmp/jellyfin_mount_$$"
+    mkdir -p "$mount_point"
+
+    if ! hdiutil attach "$dmg_file" -nobrowse -mountpoint "$mount_point" 2>/dev/null; then
+        show_error "Failed to mount DMG"
+        rm -f "$dmg_file"
+        return 1
+    fi
+
+    # Stap 3: Kopieer binaries
+    local app_frameworks="${mount_point}/Jellyfin.app/Contents/Frameworks"
+
+    if [[ ! -d "$app_frameworks" ]]; then
+        show_error "FFmpeg binaries not found in DMG"
+        hdiutil detach "$mount_point" 2>/dev/null
+        rm -f "$dmg_file"
+        return 1
+    fi
+
+    sudo mkdir -p "$JELLYFIN_FFMPEG_DIR"
+
+    # Kopieer ffmpeg en ffprobe
+    # In jellyfin-server-macos zijn deze direct in Frameworks/
+    if [[ -f "${app_frameworks}/ffmpeg" ]]; then
+        sudo cp "${app_frameworks}/ffmpeg" "$JELLYFIN_FFMPEG_BIN"
+        sudo cp "${app_frameworks}/ffprobe" "$JELLYFIN_FFPROBE_BIN"
+    else
+        # Alternatieve locatie in sommige versies
+        sudo cp -R "${app_frameworks}/"* "$JELLYFIN_FFMPEG_DIR/"
+    fi
+
+    # Stap 4: Unmount en cleanup
+    hdiutil detach "$mount_point" 2>/dev/null
+    rm -f "$dmg_file"
+    rmdir "$mount_point" 2>/dev/null || true
+
+    # Stap 5: Verwijder quarantine
+    sudo xattr -rd com.apple.quarantine "$JELLYFIN_FFMPEG_DIR" 2>/dev/null || true
+
+    # Stap 6: Zet permissions
+    sudo chmod +x "$JELLYFIN_FFMPEG_BIN" "$JELLYFIN_FFPROBE_BIN"
+
+    # Stap 7: Verificatie
+    if check_jellyfin_ffmpeg; then
+        show_result true "jellyfin-ffmpeg installed"
+
+        # Sla versie en pad op in state
+        set_config "ffmpeg_variant" "jellyfin"
+        set_config "ffmpeg_path" "$JELLYFIN_FFMPEG_BIN"
+        set_config "jellyfin_ffmpeg_version" "$version"
+
+        mark_step_complete "jellyfin_ffmpeg"
+        return 0
+    else
+        show_result false "jellyfin-ffmpeg installation verification failed"
+        return 1
+    fi
+}
+```
+
+**Waarom deze stappen:**
+1. **Download**: Haalt nieuwste versie op van GitHub
+2. **Mount**: macOS DMG moet gemount worden om content te lezen
+3. **Copy**: Extraheert alleen ffmpeg/ffprobe (niet hele Jellyfin app)
+4. **Quarantine**: macOS blokkeert downloads standaard
+5. **Permissions**: Zorgt dat binary uitvoerbaar is
+6. **Verificatie**: Bevestigt dat installatie succesvol was
+
+#### 5. `choose_ffmpeg_variant()` (Gebruikerskeuze)
+
+**Doel:** Laat gebruiker kiezen tussen Homebrew en jellyfin-ffmpeg.
+
+```bash
+choose_ffmpeg_variant() {
+    echo ""
+    show_explanation "FFmpeg Variant Selection" \
+        "Homebrew FFmpeg: Standaard, makkelijk te updaten, GEEN HDR support" \
+        "jellyfin-ffmpeg: Volledige HDR/Dolby Vision support, handmatige updates"
+
+    if command -v gum &>/dev/null; then
+        local choice
+        choice=$(gum choose \
+            "jellyfin-ffmpeg (Recommended for HDR content)" \
+            "Homebrew FFmpeg (Standard, SDR only)")
+
+        case "$choice" in
+            "jellyfin-ffmpeg"*)
+                echo "jellyfin"
+                ;;
+            "Homebrew"*)
+                echo "homebrew"
+                ;;
+            *)
+                echo "homebrew"  # Default
+                ;;
+        esac
+    else
+        echo ""
+        echo "Choose FFmpeg variant:"
+        echo "  1) jellyfin-ffmpeg (Recommended for HDR content)"
+        echo "  2) Homebrew FFmpeg (Standard, SDR only)"
+        read -p "Choice [1]: " choice
+
+        case "$choice" in
+            2)
+                echo "homebrew"
+                ;;
+            *)
+                echo "jellyfin"
+                ;;
+        esac
+    fi
+}
+```
+
+---
+
+### Wijzigingen aan Bestaande Functies
+
+#### 1. Wijziging: `install_ffmpeg()` in `lib/mac-setup.sh`
+
+**Van:**
+```bash
+install_ffmpeg() {
+    if check_ffmpeg; then
+        show_skip "FFmpeg with VideoToolbox is already installed"
+        return 0
+    fi
+    # ... Homebrew installatie ...
+}
+```
+
+**Naar:**
+```bash
+install_ffmpeg() {
+    local variant="${1:-}"
+
+    # Auto-detect bestaande installatie
+    if check_jellyfin_ffmpeg; then
+        show_skip "jellyfin-ffmpeg is already installed"
+        set_config "ffmpeg_variant" "jellyfin"
+        set_config "ffmpeg_path" "$JELLYFIN_FFMPEG_BIN"
+        return 0
+    fi
+
+    if check_ffmpeg; then
+        show_skip "FFmpeg with VideoToolbox is already installed"
+        set_config "ffmpeg_variant" "homebrew"
+        set_config "ffmpeg_path" "$HOMEBREW_FFMPEG_BIN"
+        return 0
+    fi
+
+    # Vraag gebruiker om variant als niet meegegeven
+    if [[ -z "$variant" ]]; then
+        variant=$(choose_ffmpeg_variant)
+    fi
+
+    case "$variant" in
+        jellyfin)
+            install_jellyfin_ffmpeg
+            ;;
+        homebrew|*)
+            install_homebrew_ffmpeg  # Hernoemde originele functie
+            ;;
+    esac
+}
+```
+
+#### 2. Wijziging: `check_ffmpeg()` in `lib/mac-setup.sh`
+
+**Van:**
+```bash
+check_ffmpeg() {
+    [[ -f "/opt/homebrew/bin/ffmpeg" ]] && \
+        /opt/homebrew/bin/ffmpeg -encoders 2>&1 | grep -q "videotoolbox"
+}
+```
+
+**Naar:**
+```bash
+check_ffmpeg() {
+    # Check jellyfin-ffmpeg eerst (heeft prioriteit)
+    if check_jellyfin_ffmpeg; then
+        return 0
+    fi
+
+    # Check Homebrew FFmpeg
+    [[ -f "$HOMEBREW_FFMPEG_BIN" ]] && \
+        "$HOMEBREW_FFMPEG_BIN" -encoders 2>&1 | grep -q "videotoolbox"
+}
+
+# Geeft het pad naar de actieve ffmpeg binary
+get_ffmpeg_path() {
+    if check_jellyfin_ffmpeg; then
+        echo "$JELLYFIN_FFMPEG_BIN"
+    elif [[ -f "$HOMEBREW_FFMPEG_BIN" ]]; then
+        echo "$HOMEBREW_FFMPEG_BIN"
+    else
+        echo ""
+    fi
+}
+
+get_ffprobe_path() {
+    if check_jellyfin_ffmpeg; then
+        echo "$JELLYFIN_FFPROBE_BIN"
+    elif [[ -f "$HOMEBREW_FFPROBE_BIN" ]]; then
+        echo "$HOMEBREW_FFPROBE_BIN"
+    else
+        echo ""
+    fi
+}
+```
+
+#### 3. Wijziging: `create_rffmpeg_config()` in `lib/jellyfin-setup.sh`
+
+**Van:**
+```bash
+create_rffmpeg_config() {
+    # ...
+    cat > "$config_file" << EOF
+    commands:
+        ffmpeg: "/opt/homebrew/bin/ffmpeg"
+        ffprobe: "/opt/homebrew/bin/ffprobe"
+EOF
+}
+```
+
+**Naar:**
+```bash
+create_rffmpeg_config() {
+    local mac_ip="$1"
+    local mac_user="$2"
+    local config_file="${OUTPUT_DIR}/rffmpeg/rffmpeg.yml"
+
+    # Bepaal FFmpeg paden op basis van variant
+    local ffmpeg_path ffprobe_path
+    local variant=$(get_config "ffmpeg_variant")
+
+    case "$variant" in
+        jellyfin)
+            ffmpeg_path="$JELLYFIN_FFMPEG_BIN"
+            ffprobe_path="$JELLYFIN_FFPROBE_BIN"
+            ;;
+        homebrew|*)
+            ffmpeg_path="$HOMEBREW_FFMPEG_BIN"
+            ffprobe_path="$HOMEBREW_FFPROBE_BIN"
+            ;;
+    esac
+
+    mkdir -p "$(dirname "$config_file")"
+
+    cat > "$config_file" << EOF
+# Transcodarr - rffmpeg Configuration
+# FFmpeg variant: ${variant}
+# Generated by Transcodarr Installer
+
+rffmpeg:
+    logging:
+        log_to_file: true
+        logfile: "/config/log/rffmpeg.log"
+        debug: false
+
+    directories:
+        state: "/config/rffmpeg"
+        persist: "/config/rffmpeg/persist"
+        owner: abc
+        group: abc
+
+    remote:
+        user: "${mac_user}"
+        persist: 300
+        args:
+            - "-o"
+            - "StrictHostKeyChecking=no"
+            - "-o"
+            - "UserKnownHostsFile=/dev/null"
+            - "-i"
+            - "/config/rffmpeg/.ssh/id_rsa"
+
+    commands:
+        ssh: "/usr/bin/ssh"
+        ffmpeg: "${ffmpeg_path}"
+        ffprobe: "${ffprobe_path}"
+        fallback_ffmpeg: "/usr/lib/jellyfin-ffmpeg/ffmpeg"
+        fallback_ffprobe: "/usr/lib/jellyfin-ffmpeg/ffprobe"
+EOF
+
+    show_result true "rffmpeg.yml created (using ${variant} FFmpeg)"
+}
+```
+
+---
+
+### Remote Installatie (SSH) Wijzigingen
+
+#### `lib/remote-ssh.sh`
+
+Nieuwe functie `remote_install_jellyfin_ffmpeg()`:
+
+```bash
+remote_install_jellyfin_ffmpeg() {
+    local mac_user="$1"
+    local mac_ip="$2"
+    local key_path="$3"
+
+    # Check of al geïnstalleerd
+    if ssh_exec "$mac_user" "$mac_ip" "$key_path" \
+        "[[ -f /opt/jellyfin-ffmpeg/ffmpeg ]] && /opt/jellyfin-ffmpeg/ffmpeg -filters 2>&1 | grep -q tonemapx"; then
+        show_skip "jellyfin-ffmpeg is already installed on Mac"
+        return 0
+    fi
+
+    show_info "Installing jellyfin-ffmpeg on Mac..."
+    show_info "This will download ~300MB..."
+
+    # Remote installatie script
+    ssh_exec "$mac_user" "$mac_ip" "$key_path" '
+        set -e
+
+        # Bepaal versie
+        VERSION=$(curl -sL "https://api.github.com/repos/jellyfin/jellyfin-server-macos/releases/latest" | grep -o "\"tag_name\": *\"[^\"]*\"" | head -1 | sed "s/.*: *\"\(.*\)\"/\1/")
+
+        if [[ -z "$VERSION" ]]; then
+            echo "ERROR: Could not determine version"
+            exit 1
+        fi
+
+        echo "Downloading jellyfin-ffmpeg $VERSION..."
+
+        # Bepaal architecture
+        ARCH=$(uname -m)
+        if [[ "$ARCH" == "arm64" ]]; then
+            URL="https://github.com/jellyfin/jellyfin-server-macos/releases/download/${VERSION}/jellyfin_${VERSION#v}-arm64.dmg"
+        else
+            URL="https://github.com/jellyfin/jellyfin-server-macos/releases/download/${VERSION}/jellyfin_${VERSION#v}-x64.dmg"
+        fi
+
+        DMG_FILE="/tmp/jellyfin-$$.dmg"
+        curl -L -o "$DMG_FILE" "$URL"
+
+        # Mount en extract
+        MOUNT_POINT="/tmp/jellyfin_mount_$$"
+        mkdir -p "$MOUNT_POINT"
+        hdiutil attach "$DMG_FILE" -nobrowse -mountpoint "$MOUNT_POINT"
+
+        # Kopieer binaries
+        sudo mkdir -p /opt/jellyfin-ffmpeg
+        sudo cp "$MOUNT_POINT/Jellyfin.app/Contents/Frameworks/ffmpeg" /opt/jellyfin-ffmpeg/
+        sudo cp "$MOUNT_POINT/Jellyfin.app/Contents/Frameworks/ffprobe" /opt/jellyfin-ffmpeg/
+
+        # Cleanup
+        hdiutil detach "$MOUNT_POINT"
+        rm -f "$DMG_FILE"
+        rmdir "$MOUNT_POINT" 2>/dev/null || true
+
+        # Verwijder quarantine en zet permissions
+        sudo xattr -rd com.apple.quarantine /opt/jellyfin-ffmpeg
+        sudo chmod +x /opt/jellyfin-ffmpeg/ffmpeg /opt/jellyfin-ffmpeg/ffprobe
+
+        # Verificatie
+        if /opt/jellyfin-ffmpeg/ffmpeg -filters 2>&1 | grep -q tonemapx; then
+            echo "SUCCESS: jellyfin-ffmpeg installed"
+        else
+            echo "WARNING: tonemapx filter not found"
+        fi
+    '
+
+    # Controleer resultaat
+    if ssh_exec "$mac_user" "$mac_ip" "$key_path" \
+        "/opt/jellyfin-ffmpeg/ffmpeg -filters 2>&1 | grep -q tonemapx"; then
+        show_result true "jellyfin-ffmpeg installed on Mac"
+        return 0
+    else
+        show_warning "jellyfin-ffmpeg installed but tonemapx not detected"
+        return 0  # Niet fataal
+    fi
+}
+```
+
+Wijziging aan `remote_install_ffmpeg()`:
+
+```bash
+remote_install_ffmpeg() {
+    local mac_user="$1"
+    local mac_ip="$2"
+    local key_path="$3"
+    local variant="${4:-$(get_config ffmpeg_variant)}"
+
+    case "$variant" in
+        jellyfin)
+            remote_install_jellyfin_ffmpeg "$mac_user" "$mac_ip" "$key_path"
+            ;;
+        homebrew|*)
+            # Bestaande Homebrew installatie code
+            # ...
+            ;;
+    esac
+}
+```
+
+---
+
+## State Management
+
+### Nieuwe Config Keys
+
+```json
+{
+  "config": {
+    "ffmpeg_variant": "jellyfin",
+    "ffmpeg_path": "/opt/jellyfin-ffmpeg/ffmpeg",
+    "ffprobe_path": "/opt/jellyfin-ffmpeg/ffprobe",
+    "jellyfin_ffmpeg_version": "v10.9.11"
+  }
+}
+```
+
+### Backward Compatibility
+
+- Bestaande installaties met Homebrew blijven werken
+- Nieuwe installaties krijgen keuze
+- Upgrade path: `./install.sh --upgrade-ffmpeg` (toekomstige feature)
+
+---
+
+## Samenvatting Wijzigingen
+
+| Bestand | Type | Beschrijving |
+|---------|------|--------------|
+| `lib/mac-setup.sh` | Wijzigen | Toevoegen jellyfin-ffmpeg functies, aanpassen check_ffmpeg() |
+| `lib/remote-ssh.sh` | Wijzigen | Toevoegen remote_install_jellyfin_ffmpeg() |
+| `lib/jellyfin-setup.sh` | Wijzigen | Dynamische FFmpeg paden in rffmpeg.yml |
+| `lib/detection.sh` | Wijzigen | Uitbreiden is_ffmpeg_installed() |
+| `lib/state.sh` | Ongewijzigd | Gebruik bestaande set_config/get_config |
+| `rffmpeg/rffmpeg.yml` | Wijzigen | Template met placeholder voor pad |
+
+### Nieuwe Functies Overzicht
+
+| Functie | Locatie | Doel |
+|---------|---------|------|
+| `check_jellyfin_ffmpeg()` | mac-setup.sh | Detecteer jellyfin-ffmpeg installatie |
+| `get_jellyfin_ffmpeg_latest_version()` | mac-setup.sh | Ophalen nieuwste versie |
+| `download_jellyfin_ffmpeg()` | mac-setup.sh | Download DMG van GitHub |
+| `install_jellyfin_ffmpeg()` | mac-setup.sh | Volledige installatie |
+| `choose_ffmpeg_variant()` | mac-setup.sh | Gebruikerskeuze UI |
+| `get_ffmpeg_path()` | mac-setup.sh | Geef actief FFmpeg pad |
+| `get_ffprobe_path()` | mac-setup.sh | Geef actief FFprobe pad |
+| `remote_install_jellyfin_ffmpeg()` | remote-ssh.sh | SSH installatie op remote Mac |
+
+---
+
+## Risico's en Mitigaties
+
+| Risico | Impact | Mitigatie |
+|--------|--------|-----------|
+| GitHub API rate limiting | Download faalt | Cache versie nummer, fallback naar bekende versie |
+| DMG structuur wijzigt | Extract faalt | Flexibele path detectie, error handling |
+| macOS Quarantine blokkade | Executie faalt | Automatische xattr -rd aanroep |
+| Geen internetverbinding | Download faalt | Skip met warning, handleiding tonen |
+| Bestaande Homebrew breekt | Homebrew onbruikbaar | Geen symlinks overschrijven, parallelle installatie |
+
+---
+
+## Test Scenario's
+
+1. **Schone Mac installatie** - Geen FFmpeg aanwezig
+2. **Bestaande Homebrew** - Upgrade naar jellyfin-ffmpeg
+3. **Bestaande jellyfin-ffmpeg** - Skip installatie
+4. **Remote Mac via SSH** - Identiek gedrag
+5. **Intel Mac** - x64 DMG downloaden
+6. **Apple Silicon** - arm64 DMG downloaden
+7. **Offline** - Graceful failure met instructies
