@@ -700,11 +700,7 @@ class DataCollector:
             elif section == "FFMPEG" and i + 1 < len(sections):
                 content = sections[i + 1]
                 jobs = self._parse_ffmpeg_processes(content, node.ip)
-                node.transcodes_today = self._count_transcodes_today()
-
-                for job in jobs:
-                    if job not in self._data.active_transcodes:
-                        self._data.active_transcodes.append(job)
+                node.transcodes_today = len(jobs)  # Count from this node's processes
 
     def _parse_memory_stats(self, content: str, node: NodeStats) -> None:
         """Parse vm_stat and sysctl output for memory stats."""
