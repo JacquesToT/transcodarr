@@ -283,7 +283,7 @@ class TranscodarrMonitor(App):
         await self._do_refresh()
         self.notify("Refreshed!", severity="information")
 
-    def action_toggle_details(self) -> None:
+    async def action_toggle_details(self) -> None:
         """Toggle between compact and detailed view."""
         self._compact_mode = not self._compact_mode
         mode_name = "Compact" if self._compact_mode else "Detailed"
@@ -301,7 +301,7 @@ class TranscodarrMonitor(App):
         # Update all node cards
         for card in self._node_cards.values():
             card.compact = self._compact_mode
-            card._update_display()
+            await card._update_display()
 
     def action_switch_tab(self, tab_id: str) -> None:
         """Switch to specified tab."""

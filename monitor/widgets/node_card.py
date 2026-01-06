@@ -165,23 +165,38 @@ class NodeCard(Container):
             # Compact mode: single line
             line = f"[cyan]●[/cyan] {filename}"
             if job.output_codec:
-                line += f" - {job.output_codec}"
-            if job.cpu_percent > 0:
-                line += f" - CPU: {job.cpu_percent:.0f}%"
+                line += f" → {job.output_codec}"
             return line
         else:
-            # Detailed mode: filename + details
-            details = []
+            # Detailed mode: filename + full details on second line
+            line = f"[cyan]●[/cyan] [bold]{filename}[/bold]"
 
+            # Build detail parts
+            parts = []
+
+            # Resolution: input → output
+            if job.input_resolution and job.output_resolution:
+                parts.append(f"{job.input_resolution} → {job.output_resolution}")
+            elif job.output_resolution:
+                parts.append(f"→ {job.output_resolution}")
+            elif job.input_resolution:
+                parts.append(job.input_resolution)
+
+            # Codec
             if job.output_codec:
-                details.append(job.output_codec)
+                parts.append(job.output_codec)
 
+            # Bitrate
+            if job.bitrate:
+                parts.append(job.bitrate)
+
+            # CPU
             if job.cpu_percent > 0:
-                details.append(f"CPU: {job.cpu_percent:.0f}%")
+                parts.append(f"CPU: {job.cpu_percent:.0f}%")
 
-            line = f"[cyan]●[/cyan] {filename}"
-            if details:
-                line += f" [dim]({' | '.join(details)})[/dim]"
+            if parts:
+                line += f"\n    [dim]{' | '.join(parts)}[/dim]"
+
             return line
 
     async def update_node(
