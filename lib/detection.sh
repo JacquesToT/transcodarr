@@ -98,17 +98,38 @@ is_nfs_enabled() {
 check_nfs_export() {
     local path="$1"
 
-    if [[ ! -f /etc/exports ]]; then
-        return 1
-    fi
-
     # Extract the shared folder (e.g., /volume1/data from /volume1/data/media)
     local shared_folder
     shared_folder=$(echo "$path" | sed -E 's|^(/volume[0-9]+/[^/]+).*|\1|')
 
-    # Check if shared folder is in exports
-    if grep -q "^${shared_folder}" /etc/exports 2>/dev/null; then
-        return 0
+    # Method 1: Check /etc/exports (may need sudo on Synology)
+    if [[ -f /etc/exports ]]; then
+        if sudo cat /etc/exports 2>/dev/null | grep -q "${shared_folder}"; then
+            return 0
+        fi
+    fi
+
+    # Method 2: Use showmount to list exports
+    if command -v showmount &> /dev/null; then
+        if showmount -e localhost 2>/dev/null | grep -q "${shared_folder}"; then
+            return 0
+        fi
+    fi
+
+    # Method 3: Check Synology-specific NFS config
+    if [[ -f /etc/exports.d/synology.exports ]]; then
+        if sudo cat /etc/exports.d/synology.exports 2>/dev/null | grep -q "${shared_folder}"; then
+            return 0
+        fi
+    fi
+
+    # Method 4: Check via synoshare (Synology CLI tool)
+    if command -v synoshare &> /dev/null; then
+        local share_name
+        share_name=$(basename "$shared_folder")
+        if synoshare --get "$share_name" 2>/dev/null | grep -qi "nfs"; then
+            return 0
+        fi
     fi
 
     return 1
