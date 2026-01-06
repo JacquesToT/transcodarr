@@ -164,7 +164,7 @@ sudo docker exec jellyfin bash -c '
 '
 ```
 
-### Status: ❌ NEEDS FIX in installer
+### Status: ✅ FIXED in `finalize_rffmpeg_setup()` function
 
 ---
 
@@ -186,7 +186,7 @@ sudo docker exec jellyfin chown abc:abc /config/rffmpeg/persist
 sudo docker exec jellyfin chmod 755 /config/rffmpeg/persist
 ```
 
-### Status: ❌ NEEDS FIX in installer
+### Status: ✅ FIXED in `finalize_rffmpeg_setup()` function
 
 ---
 

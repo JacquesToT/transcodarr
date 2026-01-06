@@ -365,6 +365,14 @@ Hostname        State   Active Commands
    - Probleem: `ln -sf` in bestaande directory maakt sublink
    - Fix: Eerst `rm -rf /config/cache` voordat symlink wordt gemaakt
 
+3. **SSH key niet in rffmpeg default location:** ✅ GEFIXED
+   - Probleem: rffmpeg zoekt standaard naar `/var/lib/jellyfin/.ssh/id_rsa`
+   - Fix: `finalize_rffmpeg_setup()` kopieert key naar beide locaties
+
+4. **Persist directory ontbreekt:** ✅ GEFIXED
+   - Probleem: `/config/rffmpeg/persist/` voor SSH ControlMaster ontbrak
+   - Fix: `finalize_rffmpeg_setup()` maakt directory aan
+
 ---
 ---
 

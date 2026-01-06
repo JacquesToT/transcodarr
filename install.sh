@@ -434,6 +434,9 @@ wizard_synology() {
         show_info "Waiting 10 seconds for rffmpeg to initialize..."
         sleep 10
 
+        # Finalize rffmpeg setup (persist dir + default key location)
+        finalize_rffmpeg_setup "$jellyfin_config"
+
         # Use default weight 2 (weight only matters with multiple Macs)
         local weight=2
 

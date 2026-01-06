@@ -66,6 +66,8 @@ ensure_container_ssh_key() {
         # Key exists - verify abc user can read it
         if sudo docker exec -u abc jellyfin test -r "$container_key_path" 2>/dev/null; then
             show_skip "SSH key already exists with correct permissions"
+            # Still run finalize to ensure persist dir and default key location
+            finalize_rffmpeg_setup "$jellyfin_config"
             return 0
         else
             # Fix permissions
@@ -74,6 +76,8 @@ ensure_container_ssh_key() {
             sudo chmod 600 "$host_key_file"
             sudo chmod 644 "${host_key_file}.pub" 2>/dev/null || true
             show_result true "SSH key permissions fixed"
+            # Run finalize to ensure persist dir and default key location
+            finalize_rffmpeg_setup "$jellyfin_config"
             return 0
         fi
     fi
@@ -103,6 +107,8 @@ ensure_container_ssh_key() {
     # Step 3: Verify key is now visible in container
     if sudo docker exec jellyfin test -f "$container_key_path" 2>/dev/null; then
         show_result true "SSH key installed in Jellyfin container"
+        # Run finalize to ensure persist dir and default key location
+        finalize_rffmpeg_setup "$jellyfin_config"
         return 0
     else
         show_error "SSH key not visible in container"
@@ -473,6 +479,58 @@ show_manual_copy_instructions() {
     echo -e "  ${GREEN}sudo cp -a ${OUTPUT_DIR}/rffmpeg/. ${jellyfin_config}/rffmpeg/${NC}"
     echo -e "  ${GREEN}sudo chown -R ${abc_uid}:${abc_gid} ${jellyfin_config}/rffmpeg${NC}"
     echo ""
+}
+
+# ============================================================================
+# FINALIZE RFFMPEG SETUP
+# ============================================================================
+
+# Finalize rffmpeg setup inside container
+# Creates persist directory and copies keys to default rffmpeg location
+# This fixes "remote 255" errors by ensuring rffmpeg can find SSH keys
+finalize_rffmpeg_setup() {
+    local jellyfin_config="${1:-$(get_config jellyfin_config)}"
+
+    show_info "Finalizing rffmpeg setup..."
+
+    # Check if container is running
+    if ! sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^jellyfin$"; then
+        show_warning "Jellyfin container not running - skipping finalize"
+        show_info "Run this after starting Jellyfin: sudo docker exec jellyfin bash -c 'mkdir -p /config/rffmpeg/persist /var/lib/jellyfin/.ssh'"
+        return 0
+    fi
+
+    # Execute all setup inside container in single command for efficiency
+    if sudo docker exec jellyfin bash -c '
+        # 1. Create persist directory for SSH ControlMaster sockets
+        mkdir -p /config/rffmpeg/persist
+        chown abc:abc /config/rffmpeg/persist
+        chmod 755 /config/rffmpeg/persist
+
+        # 2. Copy keys to rffmpeg default location (/var/lib/jellyfin/.ssh/)
+        # rffmpeg looks here by default even when custom path is configured
+        mkdir -p /var/lib/jellyfin/.ssh
+        if [ -f /config/rffmpeg/.ssh/id_rsa ]; then
+            cp /config/rffmpeg/.ssh/id_rsa /var/lib/jellyfin/.ssh/id_rsa
+            cp /config/rffmpeg/.ssh/id_rsa.pub /var/lib/jellyfin/.ssh/id_rsa.pub 2>/dev/null || true
+            chown -R abc:abc /var/lib/jellyfin/.ssh
+            chmod 700 /var/lib/jellyfin/.ssh
+            chmod 600 /var/lib/jellyfin/.ssh/id_rsa
+            chmod 644 /var/lib/jellyfin/.ssh/id_rsa.pub 2>/dev/null || true
+        fi
+    ' 2>/dev/null; then
+        # Verify abc user can read the key
+        if sudo docker exec -u abc jellyfin test -r /var/lib/jellyfin/.ssh/id_rsa 2>/dev/null; then
+            show_result true "rffmpeg setup finalized"
+            return 0
+        else
+            show_warning "Key copied but abc user cannot read it"
+            return 1
+        fi
+    else
+        show_error "Failed to finalize rffmpeg setup"
+        return 1
+    fi
 }
 
 # ============================================================================
