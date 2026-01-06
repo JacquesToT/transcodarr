@@ -170,6 +170,12 @@ Go to **Control Panel** → **Shared Folder**, select each shared folder, click 
 
 > **Tip:** For better security, create a dedicated shared folder (e.g., `jellyfin-cache`) instead of exposing the entire `docker` folder via NFS.
 
+### Install Git
+
+1. Open **Package Center**
+2. Search for **"Git"**
+3. Click **Install**
+
 ---
 
 ## Step 4: Install Transcodarr
