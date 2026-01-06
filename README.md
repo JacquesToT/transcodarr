@@ -180,7 +180,27 @@ Go to **Control Panel** → **Shared Folder**, select each shared folder, click 
 
 ---
 
-## Step 5: Install Transcodarr
+## Step 5: Install Homebrew on your Synology
+
+Synology requires a special version of Homebrew:
+
+```bash
+git clone https://github.com/MrCee/Synology-Homebrew.git ~/Synology-Homebrew
+~/Synology-Homebrew/install-synology-homebrew.sh
+```
+
+When prompted, select **option 1 (Minimal installation)**.
+
+After installation:
+```bash
+brew install gum
+```
+
+Then **close your terminal, reconnect via SSH**, and continue to the next step.
+
+---
+
+## Step 6: Install Transcodarr
 
 SSH into your Synology and run:
 
