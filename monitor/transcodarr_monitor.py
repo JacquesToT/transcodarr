@@ -228,7 +228,7 @@ class TranscodarrMonitor(App):
 
             if node.ip in self._node_cards:
                 # Update existing card
-                self._node_cards[node.ip].update_node(
+                await self._node_cards[node.ip].update_node(
                     node, node_jobs, self._compact_mode
                 )
             else:

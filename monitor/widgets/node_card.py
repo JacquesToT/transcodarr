@@ -73,9 +73,9 @@ class NodeCard(Container):
         yield Static(id="node-stats")
         yield Vertical(id="node-jobs")
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         """Update content when mounted."""
-        self._update_display()
+        await self._update_display()
         self._set_state_class()
 
     def _set_state_class(self) -> None:
@@ -88,7 +88,7 @@ class NodeCard(Container):
         else:
             self.add_class("active")
 
-    def _update_display(self) -> None:
+    async def _update_display(self) -> None:
         """Update all display elements."""
         # Header: Node name and status
         header = self.query_one("#node-header", Static)
@@ -125,19 +125,19 @@ class NodeCard(Container):
             stats_text = "[dim]No stats available[/dim]"
         stats.update(stats_text)
 
-        # Jobs
+        # Jobs - must await these operations
         jobs_container = self.query_one("#node-jobs", Vertical)
-        jobs_container.remove_children()
+        await jobs_container.remove_children()
 
         if not self.jobs:
-            jobs_container.mount(Static(
+            await jobs_container.mount(Static(
                 "[dim italic]No active transcodes[/dim italic]",
                 classes="job-line"
             ))
         else:
             for job in self.jobs:
                 job_widget = self._create_job_widget(job)
-                jobs_container.mount(job_widget)
+                await jobs_container.mount(job_widget)
 
     def _make_gauge(self, percent: float, width: int) -> str:
         """Create a text-based gauge bar."""
@@ -200,7 +200,7 @@ class NodeCard(Container):
 
         return Static(content, classes="job-line")
 
-    def update_node(
+    async def update_node(
         self,
         node: NodeStats,
         jobs: list[TranscodeJob],
@@ -210,5 +210,5 @@ class NodeCard(Container):
         self.node = node
         self.jobs = jobs
         self.compact = compact
-        self._update_display()
+        await self._update_display()
         self._set_state_class()
