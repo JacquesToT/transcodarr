@@ -222,6 +222,10 @@ wizard_synology() {
     fi
 
     # Check NFS exports for the specified paths
+    echo ""
+    show_info "Checking NFS exports..."
+    show_warning ">>> Enter your SYNOLOGY password if prompted <<<"
+    echo ""
     local nfs_ok=true
     if ! check_nfs_export "$media_path"; then
         nfs_ok=false
