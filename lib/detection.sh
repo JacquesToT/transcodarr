@@ -93,6 +93,27 @@ is_nfs_enabled() {
     return 1  # NFS not enabled
 }
 
+# Check if a path has NFS exports configured
+# Returns 0 if path (or parent shared folder) is in /etc/exports
+check_nfs_export() {
+    local path="$1"
+
+    if [[ ! -f /etc/exports ]]; then
+        return 1
+    fi
+
+    # Extract the shared folder (e.g., /volume1/data from /volume1/data/media)
+    local shared_folder
+    shared_folder=$(echo "$path" | sed -E 's|^(/volume[0-9]+/[^/]+).*|\1|')
+
+    # Check if shared folder is in exports
+    if grep -q "^${shared_folder}" /etc/exports 2>/dev/null; then
+        return 0
+    fi
+
+    return 1
+}
+
 # Check if this is first-time setup on Synology
 # Returns 0 (true) if first time, 1 (false) if already set up
 is_first_time_synology() {

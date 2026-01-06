@@ -157,17 +157,11 @@ wizard_synology() {
 
     if is_nfs_enabled; then
         show_result true "NFS service is active"
-        show_info "Make sure your media and cache folders have NFS permissions."
-        echo ""
-        if ! ask_confirm "Are NFS permissions already configured?"; then
-            show_nfs_instructions
-            wait_for_user "Have you configured the NFS permissions?"
-        fi
     else
         show_warning "NFS is not enabled on this Synology!"
         echo ""
         show_nfs_instructions
-        wait_for_user "Have you enabled NFS and configured the permissions?"
+        wait_for_user "Have you enabled NFS service?"
     fi
     mark_step_complete "nfs_setup"
 
@@ -225,6 +219,25 @@ wizard_synology() {
     if ! ask_confirm "Is this correct?"; then
         show_info "Restart to enter different values."
         return 1
+    fi
+
+    # Check NFS exports for the specified paths
+    local nfs_ok=true
+    if ! check_nfs_export "$media_path"; then
+        nfs_ok=false
+        show_warning "NFS not configured for media path: $media_path"
+    fi
+    if ! check_nfs_export "$cache_path"; then
+        nfs_ok=false
+        show_warning "NFS not configured for cache path: $cache_path"
+    fi
+
+    if [[ "$nfs_ok" == false ]]; then
+        echo ""
+        show_nfs_instructions
+        wait_for_user "Have you configured NFS permissions for these folders?"
+    else
+        show_result true "NFS exports found for media and cache paths"
     fi
 
     # Save config to state for resume capability
