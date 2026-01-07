@@ -65,7 +65,7 @@ get_state_bool() {
     fi
 }
 
-# Set a simple string value in state
+# Set a simple string value in state (top-level, not in config)
 # Usage: set_state_value "machine_type" "mac"
 set_state_value() {
     local key="$1"
@@ -75,23 +75,21 @@ set_state_value() {
         create_state
     fi
 
-    # Escape special characters in value for sed
-    local escaped_value
-    escaped_value=$(printf '%s' "$value" | sed 's/[&/\]/\\&/g')
+    # Use Python for reliable JSON manipulation
+    python3 << PYTHON_EOF
+import json
 
-    if grep -q "\"$key\":" "$STATE_FILE"; then
-        # Key exists, update it - use | as delimiter to avoid issues with /
-        sed -i.bak "s|\"$key\": *\"[^\"]*\"|\"$key\": \"$escaped_value\"|" "$STATE_FILE"
-        rm -f "${STATE_FILE}.bak"
-    else
-        # Key doesn't exist, add it before the last }
-        # Use a temp file approach for portability
-        local temp_file="${STATE_FILE}.tmp"
-        awk -v key="$key" -v val="$escaped_value" '
-            /^}$/ { print "  ,\"" key "\": \"" val "\"" }
-            { print }
-        ' "$STATE_FILE" > "$temp_file" && mv "$temp_file" "$STATE_FILE"
-    fi
+try:
+    with open("$STATE_FILE", "r") as f:
+        state = json.load(f)
+except (json.JSONDecodeError, FileNotFoundError):
+    state = {"version": "2.0", "config": {}}
+
+state["$key"] = "$value"
+
+with open("$STATE_FILE", "w") as f:
+    json.dump(state, f, indent=2)
+PYTHON_EOF
 }
 
 # Set a boolean value in state
@@ -104,15 +102,21 @@ set_state_bool() {
         create_state
     fi
 
-    if grep -q "\"$key\":" "$STATE_FILE"; then
-        # Key exists, update it
-        sed -i.bak "s/\"$key\": *[a-z]*/\"$key\": $value/" "$STATE_FILE"
-        rm -f "${STATE_FILE}.bak"
-    else
-        # Key doesn't exist, add it before the last }
-        sed -i.bak "s/}$/,\n  \"$key\": $value\n}/" "$STATE_FILE"
-        rm -f "${STATE_FILE}.bak"
-    fi
+    # Use Python for reliable JSON manipulation
+    python3 << PYTHON_EOF
+import json
+
+try:
+    with open("$STATE_FILE", "r") as f:
+        state = json.load(f)
+except (json.JSONDecodeError, FileNotFoundError):
+    state = {"version": "2.0", "config": {}}
+
+state["$key"] = $value  # true/false are valid Python booleans
+
+with open("$STATE_FILE", "w") as f:
+    json.dump(state, f, indent=2)
+PYTHON_EOF
 }
 
 # Set a config value
@@ -125,55 +129,25 @@ set_config() {
         create_state
     fi
 
-    # Escape special characters in value for sed
-    local escaped_value
-    escaped_value=$(printf '%s' "$value" | sed 's/[&/\]/\\&/g')
+    # Use Python for reliable JSON manipulation (available on Synology and Mac)
+    python3 << PYTHON_EOF
+import json
+import sys
 
-    if grep -q "\"config\": *{" "$STATE_FILE"; then
-        # First, expand empty config {} to multi-line if needed
-        if grep -q '"config": *{}' "$STATE_FILE"; then
-            sed -i.bak 's/"config": *{}/"config": {\n  }/' "$STATE_FILE"
-            rm -f "${STATE_FILE}.bak"
-        fi
+try:
+    with open("$STATE_FILE", "r") as f:
+        state = json.load(f)
+except (json.JSONDecodeError, FileNotFoundError):
+    state = {"version": "2.0", "config": {}}
 
-        # Config section exists, add/update key
-        if grep -q "\"$key\":" "$STATE_FILE"; then
-            # Use | as delimiter to avoid issues with /
-            sed -i.bak "s|\"$key\": *\"[^\"]*\"|\"$key\": \"$escaped_value\"|" "$STATE_FILE"
-            rm -f "${STATE_FILE}.bak"
-        else
-            # Add key inside config object - find the closing } of config and insert before it
-            # First, check if config already has content (to add comma correctly)
-            local temp_file="${STATE_FILE}.tmp"
-            if grep -q '"config": *{[^}]*[a-z]' "$STATE_FILE"; then
-                # Config has existing content - add comma after last item, then add new item
-                awk -v key="$key" -v val="$escaped_value" '
-                    /"config": *\{/ { in_config=1 }
-                    in_config && /^  \}/ {
-                        # Add new key without trailing comma (it will be the last item)
-                        print "    \"" key "\": \"" val "\""
-                        in_config=0
-                    }
-                    in_config && /"[a-z_]+": *"[^"]*"$/ {
-                        # Add comma to previous last item
-                        print $0 ","
-                        next
-                    }
-                    { print }
-                ' "$STATE_FILE" > "$temp_file" && mv "$temp_file" "$STATE_FILE"
-            else
-                # Config is empty - just add the new key without comma
-                awk -v key="$key" -v val="$escaped_value" '
-                    /"config": *\{/ { in_config=1 }
-                    in_config && /^  \}/ {
-                        print "    \"" key "\": \"" val "\""
-                        in_config=0
-                    }
-                    { print }
-                ' "$STATE_FILE" > "$temp_file" && mv "$temp_file" "$STATE_FILE"
-            fi
-        fi
-    fi
+if "config" not in state:
+    state["config"] = {}
+
+state["config"]["$key"] = "$value"
+
+with open("$STATE_FILE", "w") as f:
+    json.dump(state, f, indent=2)
+PYTHON_EOF
 }
 
 # Get a config value
