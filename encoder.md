@@ -299,6 +299,111 @@ HDR content will automatically fall back to Synology via rffmpeg.
 - Mac from 2017 or later
 - Apple Silicon preferred for best performance
 
+### Return code 127 - Mac marked as "bad"
+
+**Symptom:** rffmpeg log shows:
+```
+WARNING - Marking host 192.168.x.x as bad due to retcode 127
+INFO - Running command on host 'localhost'
+```
+
+**Cause:** Return code 127 means "command not found". rffmpeg is configured to use `/opt/jellyfin-ffmpeg/ffmpeg` but the binary doesn't exist on the Mac. This happens when:
+1. jellyfin-ffmpeg installation failed
+2. rffmpeg.yml points to wrong path
+
+**Solutions:**
+
+**Option A: Reinstall jellyfin-ffmpeg**
+```bash
+# On Synology
+cd ~/Transcodarr
+git pull
+./install.sh
+# Choose to upgrade to jellyfin-ffmpeg when prompted
+```
+
+**Option B: Switch to Homebrew FFmpeg**
+```bash
+# Edit rffmpeg.yml on Synology
+sudo nano /volume1/docker/jellyfin/rffmpeg/rffmpeg.yml
+
+# Change:
+#   ffmpeg: "/opt/jellyfin-ffmpeg/ffmpeg"
+# To:
+#   ffmpeg: "/opt/homebrew/bin/ffmpeg"
+
+# Same for ffprobe
+
+# Then reset the Mac's "bad" status:
+sudo docker exec jellyfin rffmpeg clear 192.168.x.x
+sudo docker exec jellyfin rffmpeg status
+```
+
+### "ERROR: FFmpeg not found in DMG"
+
+**Cause:** The jellyfin-ffmpeg installer was looking for FFmpeg in the wrong location inside the DMG.
+
+**Fixed in commit `60bb8fa`:** FFmpeg binaries are located at:
+- Primary: `Jellyfin.app/Contents/MacOS/ffmpeg`
+- Fallback: `Jellyfin.app/Contents/Frameworks/ffmpeg`
+
+**Solution:** Update Transcodarr to latest version:
+```bash
+cd ~/Transcodarr
+git pull
+./install.sh
+```
+
+### Mac transcoding works but falls back to Synology
+
+**Symptoms:**
+- First transcode attempt goes to Mac
+- Mac returns error code
+- rffmpeg marks Mac as "bad"
+- Subsequent transcodes go to Synology (slower)
+
+**Diagnosis:**
+```bash
+# Check rffmpeg status
+sudo docker exec jellyfin rffmpeg status
+
+# Check rffmpeg log
+sudo docker exec jellyfin tail -50 /config/log/rffmpeg.log
+```
+
+**Common causes:**
+1. **Return code 127**: FFmpeg path mismatch (see above)
+2. **Return code 8**: Missing filter (tonemapx) - need jellyfin-ffmpeg
+3. **Return code 1**: General FFmpeg error - check FFmpeg can run manually
+
+**Reset Mac status:**
+```bash
+sudo docker exec jellyfin rffmpeg clear 192.168.x.x
+```
+
+### Verify jellyfin-ffmpeg installation on Mac
+
+```bash
+# Check if jellyfin-ffmpeg exists
+ls -la /opt/jellyfin-ffmpeg/
+
+# Check for tonemapx filter
+/opt/jellyfin-ffmpeg/ffmpeg -filters 2>&1 | grep tonemapx
+
+# Check VideoToolbox support
+/opt/jellyfin-ffmpeg/ffmpeg -encoders 2>&1 | grep videotoolbox
+
+# Test FFmpeg can run
+/opt/jellyfin-ffmpeg/ffmpeg -version
+```
+
+**Expected output:**
+```
+ffmpeg version 6.0.1-Jellyfin ...
+```
+
+If any of these fail, reinstall jellyfin-ffmpeg via the Transcodarr installer.
+
 ---
 
 ## Technical Details
