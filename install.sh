@@ -91,6 +91,38 @@ check_and_install_gum() {
 }
 
 # ============================================================================
+# ADD NODE PREREQUISITES
+# ============================================================================
+
+# Check prerequisites for adding a node
+# Returns 0 if OK, 1 if first-time setup needed
+check_add_node_prerequisites() {
+    local key_path="${OUTPUT_DIR}/rffmpeg/.ssh/id_rsa"
+
+    # Check SSH key exists from previous installation
+    if [[ ! -f "$key_path" ]]; then
+        show_error "No SSH key found from previous installation"
+        echo ""
+        show_info "Run 'Install Transcodarr' first to set up your first Mac."
+        echo ""
+        return 1
+    fi
+
+    # Check for essential config
+    local nas_ip
+    nas_ip=$(get_config "nas_ip")
+    if [[ -z "$nas_ip" ]]; then
+        show_error "NAS configuration not found"
+        echo ""
+        show_info "Run 'Install Transcodarr' first to set up your first Mac."
+        echo ""
+        return 1
+    fi
+
+    return 0
+}
+
+# ============================================================================
 # SYNOLOGY WIZARD
 # ============================================================================
 
@@ -491,6 +523,234 @@ wizard_synology() {
 
     echo ""
     show_result true "Installation complete!"
+}
+
+# ============================================================================
+# ADD NODE WIZARD
+# ============================================================================
+
+wizard_add_node() {
+    local mac_ip=""
+    local mac_user=""
+    local nas_ip=""
+    local media_path=""
+    local cache_path=""
+    local key_path="${OUTPUT_DIR}/rffmpeg/.ssh/id_rsa"
+
+    # Check prerequisites first
+    if ! check_add_node_prerequisites; then
+        wait_for_user "Press Enter to return to menu"
+        return 1
+    fi
+
+    # Load existing configuration from state
+    mac_user=$(get_config "mac_user")
+    nas_ip=$(get_config "nas_ip")
+    media_path=$(get_config "media_path")
+    cache_path=$(get_config "cache_path")
+
+    # Step 1: Collect new Mac info
+    show_step 1 4 "Add New Mac"
+
+    echo ""
+    show_what_this_does "Add another Mac to your transcoding cluster."
+    echo ""
+
+    mac_ip=$(ask_input "New Mac IP address" "192.168.")
+    if [[ -z "$mac_ip" ]]; then
+        show_error "Mac IP is required"
+        return 1
+    fi
+
+    # Enforce same username
+    if [[ -n "$mac_user" ]]; then
+        echo ""
+        show_warning "All Macs must use the same SSH username!"
+        show_info "First Mac was configured with user: $mac_user"
+        echo ""
+
+        local entered_user
+        entered_user=$(ask_input "Mac username (must be: $mac_user)" "$mac_user")
+
+        if [[ "$entered_user" != "$mac_user" ]]; then
+            echo ""
+            show_error "Username must be '$mac_user' to match rffmpeg configuration"
+            show_info "Either:"
+            echo "  1. Use username '$mac_user' on this Mac"
+            echo "  2. Create user '$mac_user' on this Mac"
+            echo ""
+            wait_for_user "Press Enter to return to menu"
+            return 1
+        fi
+    else
+        mac_user=$(ask_input "Mac username" "$(whoami)")
+        set_config "mac_user" "$mac_user"
+    fi
+
+    # Step 2: Verify connectivity
+    show_step 2 4 "Connect to Mac"
+
+    # Test reachability (with retry loop)
+    local mac_reachable=false
+    while [[ "$mac_reachable" == "false" ]]; do
+        show_info "Checking if Mac is reachable at $mac_ip..."
+        if test_mac_reachable "$mac_ip"; then
+            show_result true "Mac reachable at $mac_ip"
+            mac_reachable=true
+        else
+            show_error "Mac at $mac_ip is not reachable"
+            echo ""
+            if ask_confirm "Try a different IP address?"; then
+                mac_ip=$(ask_input "Mac IP address" "$mac_ip")
+            else
+                show_info "Check that your Mac is turned on and connected to the network"
+                return 1
+            fi
+        fi
+    done
+
+    # Check SSH port (with retry)
+    local ssh_open=false
+    while [[ "$ssh_open" == "false" ]]; do
+        show_info "Checking if SSH is enabled on Mac..."
+        if test_ssh_port "$mac_ip"; then
+            show_result true "SSH port is open"
+            ssh_open=true
+        else
+            show_warning "SSH port not open on Mac at $mac_ip"
+            show_remote_login_instructions
+            echo ""
+            if ask_confirm "Try again after enabling Remote Login?"; then
+                continue
+            else
+                return 1
+            fi
+        fi
+    done
+
+    # Install SSH key (reuse existing key)
+    if test_ssh_key_auth "$mac_user" "$mac_ip" "$key_path"; then
+        show_skip "SSH key authentication already working"
+    else
+        if ! install_ssh_key_interactive "$mac_user" "$mac_ip" "${key_path}.pub"; then
+            show_error "Failed to install SSH key"
+            show_info "Make sure you entered the correct Mac password"
+            return 1
+        fi
+
+        sleep 1
+        if ! test_ssh_key_auth "$mac_user" "$mac_ip" "$key_path"; then
+            show_error "SSH key authentication still not working"
+            return 1
+        fi
+    fi
+    show_result true "SSH key authentication working"
+
+    # Step 3: Setup Mac (Software + Mounts + NFS)
+    show_step 3 4 "Setup Mac (Remote)"
+
+    show_info "Installing software on Mac via SSH..."
+    echo ""
+
+    remote_install_homebrew "$mac_user" "$mac_ip" "$key_path"
+    echo ""
+
+    remote_install_ffmpeg "$mac_user" "$mac_ip" "$key_path"
+    echo ""
+
+    # Setup synthetic links (may require reboot)
+    local synth_result
+    remote_setup_synthetic_links "$mac_user" "$mac_ip" "$key_path"
+    synth_result=$?
+
+    if [[ $synth_result -eq 2 ]]; then
+        # Needs reboot
+        if handle_mac_reboot "$mac_user" "$mac_ip" "$key_path"; then
+            if ! remote_check_synthetic_links "$mac_user" "$mac_ip" "$key_path"; then
+                show_error "Synthetic links not found after reboot"
+                return 1
+            fi
+            show_result true "/data and /config are now available"
+        else
+            show_info "Re-run 'Add a new Mac node' when Mac is back online"
+            return 0
+        fi
+    fi
+
+    # Configure NFS mounts
+    remote_setup_nfs_complete "$mac_user" "$mac_ip" "$key_path" "$nas_ip" "$media_path" "$cache_path"
+
+    # Step 4: Register with rffmpeg
+    show_step 4 4 "Register Mac"
+
+    # Setup SSH from container to Mac (for rffmpeg)
+    show_info "Setting up rffmpeg SSH access..."
+    ensure_container_ssh_key
+
+    if test_container_ssh_to_mac "$mac_user" "$mac_ip"; then
+        show_skip "SSH from Jellyfin to Mac already working"
+    else
+        copy_ssh_key_to_mac "$mac_user" "$mac_ip"
+        sleep 1
+        if test_container_ssh_to_mac "$mac_user" "$mac_ip"; then
+            show_result true "rffmpeg can now SSH to Mac"
+        else
+            show_warning "SSH from container may still need password"
+            show_info "Run 'Fix SSH Keys' from the menu if transcoding fails"
+        fi
+    fi
+
+    echo ""
+    show_info "Adding Mac to rffmpeg configuration..."
+    echo ""
+    show_warning ">>> Enter your SYNOLOGY password when prompted <<<"
+    echo ""
+
+    # Check if Jellyfin container is running
+    if ! sudo docker ps 2>/dev/null | grep -q "$JELLYFIN_CONTAINER"; then
+        show_warning "Jellyfin container not running"
+        show_info "Start Jellyfin first, then add Mac manually:"
+        echo -e "  ${GREEN}sudo docker exec $JELLYFIN_CONTAINER rffmpeg add $mac_ip --weight 2${NC}"
+        echo ""
+        wait_for_user "Press Enter to return to menu"
+        return 0
+    fi
+
+    # Check if rffmpeg is available
+    if ! sudo docker exec "$JELLYFIN_CONTAINER" which rffmpeg &>/dev/null; then
+        show_warning "rffmpeg not found in Jellyfin container"
+        show_docker_mods_instructions "$mac_ip"
+        echo ""
+        wait_for_user "Press Enter to return to menu"
+        return 0
+    fi
+
+    # Check if already registered
+    if sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg status 2>/dev/null | grep -q "$mac_ip"; then
+        show_skip "Mac is already registered in rffmpeg"
+        echo ""
+        show_info "Current rffmpeg status:"
+        sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg status 2>/dev/null || true
+    else
+        # Select weight using shared function
+        local weight
+        weight=$(select_weight)
+
+        echo ""
+        if sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg add "$mac_ip" --weight "$weight" 2>&1 | grep -v "DeprecationWarning"; then
+            show_result true "Mac added to rffmpeg with weight $weight!"
+            echo ""
+            sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg status 2>/dev/null || true
+        else
+            show_warning "Could not add Mac - try manually"
+            echo -e "  ${GREEN}sudo docker exec $JELLYFIN_CONTAINER rffmpeg add $mac_ip --weight $weight${NC}"
+        fi
+    fi
+
+    echo ""
+    show_result true "New Mac added successfully!"
+    echo ""
+    wait_for_user "Press Enter to return to menu"
 }
 
 # ============================================================================
@@ -1209,7 +1469,7 @@ main_menu_loop() {
                 ;;
             "➕ Add a new Mac node")
                 echo ""
-                "$SCRIPT_DIR/add-node.sh"
+                wizard_add_node
                 ;;
             "⚖️  Change Node Weight")
                 menu_change_weight
