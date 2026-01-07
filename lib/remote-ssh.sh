@@ -413,7 +413,10 @@ remote_install_jellyfin_ffmpeg() {
     show_info "Installing jellyfin-ffmpeg on Mac..."
     show_info "This will download ~300MB and may take several minutes..."
     echo ""
-    show_warning ">>> Enter your MAC password when prompted <<<"
+    show_warning "╔═══════════════════════════════════════════════════════════╗"
+    show_warning "║  IMPORTANT: Enter your MAC password (not Synology!)       ║"
+    show_warning "║  This is needed to install FFmpeg to /opt/jellyfin-ffmpeg ║"
+    show_warning "╚═══════════════════════════════════════════════════════════╝"
     echo ""
 
     # Remote installation script - use TTY allocation for sudo prompts
@@ -536,8 +539,13 @@ remote_install_jellyfin_ffmpeg() {
         set_config "ffmpeg_variant" "jellyfin"
         return 0
     else
-        show_error "jellyfin-ffmpeg installation failed"
-        show_info "Check Mac for errors and try again"
+        show_error "jellyfin-ffmpeg installation failed on Mac"
+        echo ""
+        show_info "Common causes:"
+        echo "  • Wrong password - make sure you enter your MAC password (not Synology)"
+        echo "  • Sudo timeout - try running the installer again"
+        echo "  • Network issue - check SSH connection to Mac"
+        echo ""
         return 1
     fi
 }
