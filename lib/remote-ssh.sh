@@ -432,10 +432,6 @@ remote_install_jellyfin_ffmpeg() {
 
         JELLYFIN_FFMPEG_DIR="/opt/jellyfin-ffmpeg"
 
-        # Use v10.10.3 - this version has tonemapx filter for HDR support
-        # Note: GitHub "latest" release (10.9.9) does NOT have tonemapx!
-        VERSION="v10.10.3"
-
         # Get native architecture (handles Rosetta)
         if [[ $(sysctl -n hw.optional.arm64 2>/dev/null) == "1" ]]; then
             ARCH="arm64"
@@ -443,81 +439,85 @@ remote_install_jellyfin_ffmpeg() {
             ARCH=$(uname -m)
         fi
 
-        echo "Using jellyfin-ffmpeg $VERSION (with tonemapx HDR support)"
+        # Fetch latest version from jellyfin-ffmpeg repo (NOT jellyfin-server-macos!)
+        echo "Fetching latest jellyfin-ffmpeg version..."
+        RESPONSE=$(curl -sL "https://api.github.com/repos/jellyfin/jellyfin-ffmpeg/releases/latest" 2>/dev/null)
+        VERSION=$(echo "$RESPONSE" | grep -o "\"tag_name\": *\"[^\"]*\"" | head -1 | sed "s/.*\"\([^\"]*\)\".*/\1/")
 
-        # Determine download URL
+        if [[ -z "$VERSION" ]]; then
+            VERSION="v7.1.3-1"  # Fallback
+            echo "Using fallback version: $VERSION"
+        fi
+
+        echo "Version: $VERSION"
+
+        # Determine download URL (tar.xz format from jellyfin-ffmpeg repo)
+        VERSION_NUM="${VERSION#v}"  # Remove v prefix: v7.1.3-1 -> 7.1.3-1
         if [[ "$ARCH" == "arm64" ]]; then
-            URL="https://github.com/jellyfin/jellyfin-server-macos/releases/download/${VERSION}/jellyfin_${VERSION#v}-arm64.dmg"
+            URL="https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/${VERSION}/jellyfin-ffmpeg_${VERSION_NUM}_portable_macarm64-gpl.tar.xz"
         else
-            URL="https://github.com/jellyfin/jellyfin-server-macos/releases/download/${VERSION}/jellyfin_${VERSION#v}-x64.dmg"
+            URL="https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/${VERSION}/jellyfin-ffmpeg_${VERSION_NUM}_portable_mac64-gpl.tar.xz"
         fi
 
         echo "Downloading from: $URL"
-        DMG_FILE="/tmp/jellyfin-$$.dmg"
-        curl -L --progress-bar -o "$DMG_FILE" "$URL"
-
-        # Verify download
-        if [[ ! -f "$DMG_FILE" ]] || [[ $(stat -f%z "$DMG_FILE" 2>/dev/null || echo 0) -lt 1000000 ]]; then
-            echo "ERROR: Download failed or incomplete"
-            rm -f "$DMG_FILE"
+        ARCHIVE="/tmp/jellyfin-ffmpeg-$$.tar.xz"
+        if ! curl -L --progress-bar -o "$ARCHIVE" "$URL"; then
+            echo "ERROR: Download failed"
+            rm -f "$ARCHIVE"
             exit 1
         fi
 
-        # Mount DMG (with all flags to prevent UI dialogs)
-        echo "Mounting disk image..."
-        MOUNT_POINT="/tmp/jellyfin_mount_$$"
-        mkdir -p "$MOUNT_POINT"
-
-        # Force detach if already mounted, then attach
-        hdiutil detach "$MOUNT_POINT" -force 2>/dev/null || true
-        if ! hdiutil attach "$DMG_FILE" -nobrowse -noverify -noautoopen -mountpoint "$MOUNT_POINT" 2>/dev/null; then
-            echo "ERROR: Failed to mount DMG"
-            rm -f "$DMG_FILE"
-            rmdir "$MOUNT_POINT" 2>/dev/null || true
+        # Verify download (should be at least 30MB)
+        FILE_SIZE=$(stat -f%z "$ARCHIVE" 2>/dev/null || stat -c%s "$ARCHIVE" 2>/dev/null || echo 0)
+        if [[ ! -f "$ARCHIVE" ]] || [[ "$FILE_SIZE" -lt 30000000 ]]; then
+            echo "ERROR: Download incomplete (size: ${FILE_SIZE} bytes)"
+            rm -f "$ARCHIVE"
             exit 1
         fi
 
-        # Find and copy binaries
-        # FFmpeg is in Contents/MacOS/, not Contents/Frameworks/
-        APP_MACOS="${MOUNT_POINT}/Jellyfin.app/Contents/MacOS"
+        echo "Download complete (${FILE_SIZE} bytes)"
 
-        if [[ ! -f "${APP_MACOS}/ffmpeg" ]]; then
-            echo "FFmpeg not found in MacOS/, checking Frameworks/..."
-            if [[ -f "${MOUNT_POINT}/Jellyfin.app/Contents/Frameworks/ffmpeg" ]]; then
-                APP_MACOS="${MOUNT_POINT}/Jellyfin.app/Contents/Frameworks"
-                echo "Found in Frameworks/"
-            else
-                echo "ERROR: FFmpeg not found in DMG"
-                hdiutil detach "$MOUNT_POINT" -force 2>/dev/null || true
-                rm -f "$DMG_FILE"
-                exit 1
-            fi
+        # Extract archive
+        echo "Extracting..."
+        EXTRACT_DIR="/tmp/jellyfin-ffmpeg-extract-$$"
+        mkdir -p "$EXTRACT_DIR"
+        tar -xf "$ARCHIVE" -C "$EXTRACT_DIR"
+
+        # Find ffmpeg binary in extracted files
+        FFMPEG_BIN=$(find "$EXTRACT_DIR" -name "ffmpeg" -type f | head -1)
+        FFPROBE_BIN=$(find "$EXTRACT_DIR" -name "ffprobe" -type f | head -1)
+
+        if [[ -z "$FFMPEG_BIN" ]] || [[ -z "$FFPROBE_BIN" ]]; then
+            echo "ERROR: ffmpeg/ffprobe not found in archive"
+            rm -rf "$ARCHIVE" "$EXTRACT_DIR"
+            exit 1
         fi
 
-        echo "Extracting FFmpeg binaries from ${APP_MACOS}..."
+        echo "Found: $FFMPEG_BIN"
+
+        # Install to /opt/jellyfin-ffmpeg
+        echo "Installing to $JELLYFIN_FFMPEG_DIR..."
         sudo mkdir -p "$JELLYFIN_FFMPEG_DIR"
-
-        sudo cp "${APP_MACOS}/ffmpeg" "${JELLYFIN_FFMPEG_DIR}/ffmpeg"
-        sudo cp "${APP_MACOS}/ffprobe" "${JELLYFIN_FFMPEG_DIR}/ffprobe"
+        sudo cp "$FFMPEG_BIN" "${JELLYFIN_FFMPEG_DIR}/ffmpeg"
+        sudo cp "$FFPROBE_BIN" "${JELLYFIN_FFMPEG_DIR}/ffprobe"
 
         # Cleanup
         echo "Cleaning up..."
-        hdiutil detach "$MOUNT_POINT" -force 2>/dev/null || true
-        rm -f "$DMG_FILE"
-        rmdir "$MOUNT_POINT" 2>/dev/null || true
+        rm -rf "$ARCHIVE" "$EXTRACT_DIR"
 
         # Remove quarantine and set permissions
         echo "Configuring permissions..."
         sudo xattr -rd com.apple.quarantine "$JELLYFIN_FFMPEG_DIR" 2>/dev/null || true
-        sudo chmod +x "${JELLYFIN_FFMPEG_DIR}/ffmpeg" "${JELLYFIN_FFMPEG_DIR}/ffprobe" 2>/dev/null || true
+        sudo chmod +x "${JELLYFIN_FFMPEG_DIR}/ffmpeg" "${JELLYFIN_FFMPEG_DIR}/ffprobe"
 
         # Verification
         echo "Verifying installation..."
         if "${JELLYFIN_FFMPEG_DIR}/ffmpeg" -filters 2>&1 | grep -q tonemapx; then
-            echo "SUCCESS: jellyfin-ffmpeg installed with HDR support"
+            echo "SUCCESS: jellyfin-ffmpeg installed with HDR/tonemapx support"
             "${JELLYFIN_FFMPEG_DIR}/ffmpeg" -version | head -1
         else
-            echo "WARNING: tonemapx filter not detected"
+            echo "WARNING: tonemapx filter not detected (may still work for SDR)"
+            "${JELLYFIN_FFMPEG_DIR}/ffmpeg" -version | head -1
         fi
     '
 
