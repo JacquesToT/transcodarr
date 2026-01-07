@@ -77,10 +77,15 @@ Collect these values:
 
 ---
 
-## Step 1: Enable Remote Login on your Mac
+## Step 1.1: Enable Remote Login on your Mac
 
 1. Open **System Settings** → **General** → **Sharing**
 2. Enable **"Remote Login"**
+
+## Step 1.2: Enable SSH login on your Synology
+
+1. Open **Control Panel** → **Terminal & SNMP**
+2. Enable **"SSH Service"**
 
 ---
 
@@ -114,6 +119,9 @@ services:
 ```
 
 > **Note:** Find your PUID/PGID by running `id` in SSH on your Synology.
+
+Start the container and wait for FFmpeg to install.
+(can take a while)
 
 ### Fix Permissions (if Jellyfin won't start)
 
@@ -183,6 +191,8 @@ Go to **Control Panel** → **Shared Folder**, select each shared folder, click 
 ## Step 5: Install Homebrew on your Synology
 
 Synology requires a special version of Homebrew:
+
+SSH into your Synology and run: 
 
 ```bash
 git clone https://github.com/MrCee/Synology-Homebrew.git ~/Synology-Homebrew
