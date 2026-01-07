@@ -1112,10 +1112,9 @@ show_main_menu() {
     # Documentation always available
     menu_options+=("📖 Documentation")
 
-    # Only show Monitor and Configure if configured
+    # Only show Monitor if configured
     if [[ "$install_status" == "configured" ]] && [[ -f "$SCRIPT_DIR/monitor.sh" ]]; then
         menu_options+=("📊 Monitor")
-        menu_options+=("⚙️  Configure Monitor")
     fi
 
     menu_options+=("❌ Exit")
@@ -1226,9 +1225,6 @@ main_menu_loop() {
                 ;;
             "📊 Monitor")
                 start_monitor
-                ;;
-            "⚙️  Configure Monitor")
-                configure_monitor_settings
                 ;;
             "❌ Exit"|"")
                 echo ""

@@ -21,6 +21,11 @@ This project creates network pathways between your NAS and Mac(s). Understand th
 | **Sudo on Mac** | Installer requires root access for mount points, LaunchDaemons, and energy settings. |
 | **Sleep disabled** | Mac sleep is disabled, increasing exposure time. |
 | **NFS at folder level** | Synology NFS permissions are set per shared folder, not subfolders. Enabling NFS on `docker` exposes the entire folder. |
+| **World-Writable Cache** | The script sets `chmod 777` on the `transcodes` directory. Any user on the system (Mac or NAS) can read/write/delete these files. |
+| **MITM Vulnerability** | SSH connections use `StrictHostKeyChecking=no`. If an attacker spoofs the Mac's IP, the script will connect without warning. |
+| **Piping to Bash** | The script executes downloaded code directly (`curl ... | bash`), which bypasses local inspection. |
+| **Unverified Downloads** | External scripts (Homebrew) and binaries (FFmpeg) are downloaded without checksum verification. |
+| **No Uninstaller** | There is no automatic rollback or uninstall feature. System changes (LaunchDaemons, synthetic.conf) must be reverted manually. |
 
 **Recommendations:**
 - Use a dedicated user account on Mac nodes
