@@ -980,8 +980,43 @@ launchctl load /Library/LaunchDaemons/com.transcodarr.nfs-cache.plist 2>/dev/nul
 # === Energy Settings ===
 pmset -a sleep 0 displaysleep 0 disksleep 0 powernap 0 autorestart 1 womp 1
 
-# === Test Mount ===
+# === Test Mounts ===
+echo 'Running mount scripts...'
 /usr/local/bin/mount-nfs-media.sh 2>/dev/null || true
+/usr/local/bin/mount-synology-cache.sh 2>/dev/null || true
+
+# === Verify Mounts ===
+echo 'Verifying mounts...'
+if mount | grep -q '/data/media'; then
+    echo 'VERIFY_MEDIA_OK'
+else
+    echo 'VERIFY_MEDIA_FAILED'
+fi
+
+if mount | grep -q 'jellyfin-cache'; then
+    echo 'VERIFY_CACHE_OK'
+else
+    echo 'VERIFY_CACHE_FAILED'
+fi
+
+# === Verify /config/cache symlink ===
+if [[ -L /config/cache ]]; then
+    echo 'VERIFY_SYMLINK_OK'
+elif [[ -d /config/cache ]]; then
+    # Fix: remove directory and create symlink
+    rm -rf /config/cache
+    ln -sf /Users/Shared/jellyfin-cache /config/cache
+    echo 'VERIFY_SYMLINK_FIXED'
+else
+    # Create symlink
+    ln -sf /Users/Shared/jellyfin-cache /config/cache
+    echo 'VERIFY_SYMLINK_CREATED'
+fi
+
+# === Ensure transcodes directory exists ===
+mkdir -p /Users/Shared/jellyfin-cache/transcodes
+chmod 777 /Users/Shared/jellyfin-cache/transcodes
+echo 'VERIFY_TRANSCODES_OK'
 
 echo 'SETUP_COMPLETE'
 "
@@ -1016,13 +1051,31 @@ echo 'SETUP_COMPLETE'
         show_result true "LaunchDaemons created and loaded"
         show_result true "Energy settings configured"
 
-        # Verify NFS mount
-        if ssh_exec "$mac_user" "$mac_ip" "$key_path" "mount | grep -q '/data/media'"; then
+        # Show verification results from script output
+        if echo "$result" | grep -q "VERIFY_MEDIA_OK"; then
             show_result true "NFS media mount working"
         else
-            show_warning "NFS mount not active yet (will mount on next boot)"
-            show_info "Run manually on Mac: sudo /usr/local/bin/mount-nfs-media.sh"
+            show_warning "Media mount not active (will mount on next boot)"
         fi
+
+        if echo "$result" | grep -q "VERIFY_CACHE_OK"; then
+            show_result true "NFS cache mount working"
+        else
+            show_warning "Cache mount not active (will mount on next boot)"
+        fi
+
+        if echo "$result" | grep -q "VERIFY_SYMLINK_OK"; then
+            show_result true "/config/cache symlink correct"
+        elif echo "$result" | grep -q "VERIFY_SYMLINK_FIXED"; then
+            show_result true "/config/cache symlink fixed (was directory)"
+        elif echo "$result" | grep -q "VERIFY_SYMLINK_CREATED"; then
+            show_result true "/config/cache symlink created"
+        fi
+
+        if echo "$result" | grep -q "VERIFY_TRANSCODES_OK"; then
+            show_result true "Transcodes directory ready"
+        fi
+
         return 0
     else
         show_error "Setup failed"
