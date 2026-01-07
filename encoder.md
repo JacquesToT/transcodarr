@@ -2,7 +2,61 @@
 
 ## Overview
 
-Transcodarr uses Homebrew FFmpeg on Mac by default. This document explains the limitations with HDR content and provides **working solutions** for successful HEVC/HDR transcoding.
+Transcodarr uses jellyfin-ffmpeg on Mac for HDR/Dolby Vision transcoding support. This document explains the setup and troubleshooting for HEVC/HDR transcoding.
+
+---
+
+## Debug Session 2026-01-07: Installer Fixes
+
+### Bugs Fixed in This Session
+
+| Bug | Root Cause | Fix |
+|-----|------------|-----|
+| **jellyfin-ffmpeg not installing** | `ssh_exec` used `BatchMode=yes` blocking sudo password prompts | Changed to `ssh -tt` for TTY allocation |
+| **Installation failure masked** | `return 0` even when verification failed | Changed to `return 1` on failure |
+| **Wrong GitHub repo** | Was using `jellyfin-server-macos` (DMG, no macOS builds with tonemapx) | Now uses `jellyfin/jellyfin-ffmpeg` (tar.xz with proper builds) |
+| **ffmpeg_variant not saved** | State never persisted after installation | Added `set_config "ffmpeg_variant" "jellyfin"` |
+| **Homebrew option removed** | User wanted jellyfin-only | Simplified to always install jellyfin-ffmpeg |
+
+### Current Status: Return Code 8
+
+**Symptom:** Mac is used for transcoding but fails with return code 8
+
+**Root Cause:** Jellyfin requests `libfdk_aac` encoder but jellyfin-ffmpeg has `--disable-libfdk-aac`
+
+```
+-codec:a:0 libfdk_aac   ← Jellyfin requests this
+```
+
+But jellyfin-ffmpeg build shows:
+```
+--disable-libfdk-aac    ← Not available!
+```
+
+**Available AAC encoders in jellyfin-ffmpeg:**
+- `aac` - Built-in FFmpeg AAC encoder
+- `aac_at` - AudioToolbox AAC (macOS native, high quality)
+
+**Solution:** In Jellyfin Dashboard:
+1. Go to **Dashboard → Playback → Transcoding**
+2. Find **"Enable FDK AAC encoder"** and **DISABLE IT**
+3. Save
+
+Jellyfin will then use the built-in `aac` encoder which IS available.
+
+### NFS Mount Required
+
+For transcoding to work, the Mac must have access to media files:
+
+```bash
+# On Mac - mount NFS share
+sudo mount -t nfs -o resvport,rw,nolock <SYNOLOGY_IP>:/volume1/data/media /data/media
+
+# Verify
+ls /data/media/movies/
+```
+
+The installer creates mount scripts at `/usr/local/bin/mount-nfs-media.sh` but the IP may need to be updated.
 
 ---
 
