@@ -37,8 +37,8 @@ class TranscodarrConfig:
     ssh_timeout: int = 5
 
     # Monitor settings
-    refresh_interval: float = 5.0
-    log_lines: int = 50
+    refresh_interval: float = 10.0  # Refresh every 10 seconds
+    log_lines: int = 100  # Show last 100 log lines
 
     # Runtime detection (set after load)
     _is_synology: Optional[bool] = field(default=None, repr=False)
