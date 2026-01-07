@@ -431,7 +431,10 @@ remote_install_jellyfin_ffmpeg() {
         set -e
 
         JELLYFIN_FFMPEG_DIR="/opt/jellyfin-ffmpeg"
-        KNOWN_GOOD_VERSION="v10.10.3"
+
+        # Use v10.10.3 - this version has tonemapx filter for HDR support
+        # Note: GitHub "latest" release (10.9.9) does NOT have tonemapx!
+        VERSION="v10.10.3"
 
         # Get native architecture (handles Rosetta)
         if [[ $(sysctl -n hw.optional.arm64 2>/dev/null) == "1" ]]; then
@@ -440,22 +443,7 @@ remote_install_jellyfin_ffmpeg() {
             ARCH=$(uname -m)
         fi
 
-        # Get latest version from GitHub (with fallback)
-        echo "Fetching latest version..."
-        RESPONSE=$(curl -sL -w "\n%{http_code}" "https://api.github.com/repos/jellyfin/jellyfin-server-macos/releases/latest" 2>/dev/null)
-        HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-        BODY=$(echo "$RESPONSE" | sed "\$d")
-
-        if [[ "$HTTP_CODE" == "200" ]]; then
-            VERSION=$(echo "$BODY" | grep -o "\"tag_name\": *\"[^\"]*\"" | head -1 | sed "s/.*: *\"\([^\"]*\)\".*/\1/")
-        fi
-
-        if [[ -z "$VERSION" ]]; then
-            echo "Using fallback version: $KNOWN_GOOD_VERSION"
-            VERSION="$KNOWN_GOOD_VERSION"
-        fi
-
-        echo "Version: $VERSION"
+        echo "Using jellyfin-ffmpeg $VERSION (with tonemapx HDR support)"
 
         # Determine download URL
         if [[ "$ARCH" == "arm64" ]]; then
