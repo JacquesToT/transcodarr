@@ -1736,10 +1736,9 @@ show_main_menu() {
         menu_options+=("🚀 Install Transcodarr (reinstall)")
     fi
 
-    menu_options+=("➕ Add a new Mac node")
-
     # Node management options (only if configured)
     if [[ "$install_status" != "first_time" ]]; then
+        menu_options+=("➕ Add a new Mac node")
         menu_options+=("⚖️  Change Node Weight")
         menu_options+=("🗑️  Uninstall Transcodarr")
         menu_options+=("🔑 Fix SSH Keys")
