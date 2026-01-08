@@ -1460,6 +1460,20 @@ menu_uninstall_synology() {
     echo ""
     show_result true "Synology uninstall complete"
     echo ""
+
+    # Show instructions for restoring Jellyfin to normal operation
+    gum style --foreground 226 --border double --padding "1 2" \
+        "⚠ IMPORTANT: Restore Jellyfin to normal operation" \
+        "" \
+        "Remove these environment variables from Jellyfin:" \
+        "" \
+        "  DOCKER_MODS=linuxserver/mods:jellyfin-rffmpeg" \
+        "  FFMPEG_PATH=/usr/local/bin/ffmpeg" \
+        "" \
+        "Then restart the Jellyfin container." \
+        "" \
+        "Without this, Jellyfin will fail to transcode!"
+    echo ""
     show_info "To reinstall: git clone the repository and run ./install.sh"
     wait_for_user "Press Enter to continue"
 }
@@ -1619,11 +1633,23 @@ menu_uninstall_both() {
         "✓ COMPLETE UNINSTALL FINISHED" \
         "" \
         "Transcodarr has been removed from" \
-        "all nodes and this Synology." \
-        "" \
-        "To reinstall:" \
-        "git clone + ./install.sh"
+        "all nodes and this Synology."
     echo ""
+
+    # Show instructions for restoring Jellyfin to normal operation
+    gum style --foreground 226 --border double --padding "1 2" \
+        "⚠ IMPORTANT: Restore Jellyfin to normal operation" \
+        "" \
+        "Remove these environment variables from Jellyfin:" \
+        "" \
+        "  DOCKER_MODS=linuxserver/mods:jellyfin-rffmpeg" \
+        "  FFMPEG_PATH=/usr/local/bin/ffmpeg" \
+        "" \
+        "Then restart the Jellyfin container." \
+        "" \
+        "Without this, Jellyfin will fail to transcode!"
+    echo ""
+    show_info "To reinstall: git clone the repository and run ./install.sh"
 
     wait_for_user "Press Enter to exit"
     exit 0

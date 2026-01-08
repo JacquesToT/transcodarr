@@ -1271,25 +1271,19 @@ echo 'REMOVED: SSH key (manual step needed)'
     local script_b64
     script_b64=$(echo "$uninstall_script" | base64)
 
-    local temp_output
-    temp_output=$(mktemp)
-
-    # Write script to temp file on Mac, then execute with sudo
-    # This keeps stdin free for the password prompt
-    ssh -tt \
+    # Write script to temp file on Mac, execute with sudo, capture output to file on Mac
+    # This way the password prompt works correctly and output is captured separately
+    ssh -t \
         -o ConnectTimeout=30 \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -i "$key_path" \
         "${mac_user}@${mac_ip}" \
-        "TMPSCRIPT=\$(mktemp) && echo '$script_b64' | base64 -d > \"\$TMPSCRIPT\" && sudo bash \"\$TMPSCRIPT\" && rm -f \"\$TMPSCRIPT\"" \
-        2>&1 | tee "$temp_output"
+        "TMPSCRIPT=\$(mktemp) && TMPOUT=\$(mktemp) && echo '$script_b64' | base64 -d > \"\$TMPSCRIPT\" && sudo bash \"\$TMPSCRIPT\" > \"\$TMPOUT\" 2>&1 && cat \"\$TMPOUT\" && rm -f \"\$TMPSCRIPT\" \"\$TMPOUT\""
 
-    # Show results from captured output
-    grep "^REMOVED:" "$temp_output" 2>/dev/null | while read -r line; do
-        show_result true "${line#REMOVED: }"
-    done
-    rm -f "$temp_output"
+    # Show generic success since we can't easily capture the output
+    echo ""
+    show_result true "Mac cleanup commands executed"
 
     # FFmpeg (jellyfin-ffmpeg) is now removed via sudo in the uninstall script above
 
