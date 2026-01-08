@@ -110,7 +110,7 @@ confirm_nas_ip() {
         local new_ip
         new_ip=$(ask_input "NAS/Synology IP address" "$detected_ip")
         if [[ -z "$new_ip" ]]; then
-            show_error "NAS IP is required"
+            show_error "NAS IP is required" >&2
             return 1
         fi
         set_config "nas_ip" "$new_ip"
@@ -119,18 +119,19 @@ confirm_nas_ip() {
     fi
 
     # Show saved IP and test connectivity
-    echo ""
-    show_info "Saved NAS configuration: $saved_ip"
+    # NOTE: All informational output goes to stderr to avoid polluting the return value
+    echo "" >&2
+    show_info "Saved NAS configuration: $saved_ip" >&2
 
     # Quick ping test
     if ping -c1 -W2 "$saved_ip" &>/dev/null; then
-        show_result true "NAS reachable at $saved_ip"
+        show_result true "NAS reachable at $saved_ip" >&2
     else
-        show_warning "NAS at $saved_ip is NOT reachable!"
+        show_warning "NAS at $saved_ip is NOT reachable!" >&2
     fi
 
     # Always ask for confirmation
-    echo ""
+    echo "" >&2
     if ask_confirm "Use this NAS IP ($saved_ip)?"; then
         echo "$saved_ip"
         return 0
@@ -140,13 +141,13 @@ confirm_nas_ip() {
     local new_ip
     new_ip=$(ask_input "NAS/Synology IP address" "$saved_ip")
     if [[ -z "$new_ip" ]]; then
-        show_error "NAS IP is required"
+        show_error "NAS IP is required" >&2
         return 1
     fi
 
     # Update config with new IP
     set_config "nas_ip" "$new_ip"
-    show_result true "NAS IP updated to $new_ip"
+    show_result true "NAS IP updated to $new_ip" >&2
     echo "$new_ip"
     return 0
 }
