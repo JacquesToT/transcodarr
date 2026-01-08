@@ -875,6 +875,26 @@ remote_setup_nfs_complete() {
     # Build the complete setup script
     # All commands run in a single sudo session
     local setup_script="
+# === Cleanup Old Config ===
+echo 'Cleaning up old NFS configuration...'
+
+# Unmount existing NFS mounts (ignore errors if not mounted)
+umount -f /data/media 2>/dev/null || true
+umount -f /System/Volumes/Data/data/media 2>/dev/null || true
+umount -f /Users/Shared/jellyfin-cache 2>/dev/null || true
+
+# Remove old mount scripts (will be recreated with correct IPs)
+rm -f /usr/local/bin/mount-nfs-media.sh
+rm -f /usr/local/bin/mount-synology-cache.sh
+
+# Fix /config/cache - remove if directory, will be recreated as symlink
+if [[ -d /config/cache && ! -L /config/cache ]]; then
+    rm -rf /config/cache
+    echo 'Removed old /config/cache directory'
+fi
+
+echo 'Cleanup complete'
+
 # Create directories
 mkdir -p /usr/local/bin
 
@@ -892,9 +912,16 @@ for i in {1..30}; do
     sleep 1
 done
 
-if mount | grep -q \"\$MOUNT_POINT\"; then
-    log \"NFS already mounted\"
+# Check if already mounted to CORRECT share (not just any mount)
+if mount | grep -q \"\$NFS_SHARE on\"; then
+    log \"NFS already mounted correctly\"
     exit 0
+fi
+
+# If mounted to WRONG share, unmount first
+if mount | grep -q \"\$MOUNT_POINT\"; then
+    log \"Unmounting old/incorrect mount\"
+    umount -f \"\$MOUNT_POINT\" 2>/dev/null || true
 fi
 
 mkdir -p \"\$MOUNT_POINT\"
@@ -918,7 +945,16 @@ for i in {1..30}; do
 done
 
 mkdir -p \"\$MOUNT_POINT\"
-if ! mount | grep -q \"\$MOUNT_POINT\"; then
+
+# Check if already mounted to CORRECT share (not just any mount)
+if mount | grep -q \"\$NFS_SHARE on\"; then
+    log \"Cache already mounted correctly\"
+else
+    # If mounted to WRONG share, unmount first
+    if mount | grep -q \"\$MOUNT_POINT\"; then
+        log \"Unmounting old/incorrect cache mount\"
+        umount -f \"\$MOUNT_POINT\" 2>/dev/null || true
+    fi
     /sbin/mount -t nfs -o resvport,rw,nolock \"\$NFS_SHARE\" \"\$MOUNT_POINT\"
     log \"Mounted Synology cache\"
 fi
