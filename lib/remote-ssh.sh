@@ -234,19 +234,21 @@ handle_mac_reboot() {
 
     echo ""
     show_warning "╔═══════════════════════════════════════════════════════════╗"
-    show_warning "║  ACTION REQUIRED: Reboot your Mac now!                    ║"
+    show_warning "║  MAC REBOOT REQUIRED                                      ║"
     show_warning "║                                                           ║"
-    show_warning "║  On your Mac: Apple menu → Restart                        ║"
-    show_warning "║  Or run: sudo reboot                                      ║"
+    show_warning "║  The /data and /config mount points need a reboot         ║"
+    show_warning "║  to become active. Without this, transcoding will         ║"
+    show_warning "║  NOT work!                                                ║"
     show_warning "╚═══════════════════════════════════════════════════════════╝"
     echo ""
-    show_info "After clicking 'Yes', the installer will wait for Mac to restart."
-    echo ""
 
-    if ask_confirm "Is the Mac rebooting? Click Yes to continue"; then
+    if ask_confirm "Reboot Mac now?"; then
         set_state_value "reboot_in_progress" "true"
         set_state_value "reboot_mac_ip" "$mac_ip"
         set_state_value "reboot_mac_user" "$mac_user"
+
+        show_info "Sending reboot command to Mac..."
+        ssh_exec_sudo "$mac_user" "$mac_ip" "$key_path" "reboot" 2>/dev/null || true
 
         show_info "Waiting for Mac to go offline..."
         sleep 5
@@ -267,7 +269,18 @@ handle_mac_reboot() {
             return 1
         fi
     else
-        show_warning "Installer paused. Re-run after Mac reboot."
+        echo ""
+        show_error "╔═══════════════════════════════════════════════════════════╗"
+        show_error "║  WARNING: Transcoding will NOT work without reboot!       ║"
+        show_error "║                                                           ║"
+        show_error "║  The synthetic links (/data, /config) are not active.     ║"
+        show_error "║  FFmpeg cannot access media files without these paths.    ║"
+        show_error "║                                                           ║"
+        show_error "║  To complete setup later:                                 ║"
+        show_error "║  1. Reboot your Mac manually                              ║"
+        show_error "║  2. Re-run ./install.sh on Synology                       ║"
+        show_error "╚═══════════════════════════════════════════════════════════╝"
+        echo ""
         set_state_value "reboot_in_progress" "true"
         set_state_value "reboot_mac_ip" "$mac_ip"
         set_state_value "reboot_mac_user" "$mac_user"
