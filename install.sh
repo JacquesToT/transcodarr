@@ -565,6 +565,7 @@ wizard_synology() {
 
                 # Reorder hosts by weight (workaround for rffmpeg bug)
                 reorder_rffmpeg_hosts "$JELLYFIN_CONTAINER"
+                manage_load_balancer "$JELLYFIN_CONTAINER"
 
                 echo ""
                 show_info "Current rffmpeg status:"
@@ -815,6 +816,7 @@ wizard_add_node() {
 
             # Reorder hosts by weight (workaround for rffmpeg bug)
             reorder_rffmpeg_hosts "$JELLYFIN_CONTAINER"
+                manage_load_balancer "$JELLYFIN_CONTAINER"
 
             echo ""
             sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg status 2>/dev/null || true
@@ -1157,6 +1159,7 @@ menu_change_weight() {
 
             # Reorder hosts by weight (workaround for rffmpeg bug)
             reorder_rffmpeg_hosts "$JELLYFIN_CONTAINER"
+                manage_load_balancer "$JELLYFIN_CONTAINER"
 
             echo ""
             sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg status 2>/dev/null || true
@@ -1183,20 +1186,22 @@ menu_load_balancer() {
         echo ""
 
         # Check daemon status
-        local daemon_status="Stopped"
-        local daemon_mode=""
+        local daemon_running=false
         local pid_file="/tmp/transcodarr-lb.pid"
         if [[ -f "$pid_file" ]]; then
             local pid
             pid=$(cat "$pid_file")
             if kill -0 "$pid" 2>/dev/null; then
-                daemon_status="${GREEN}Running${NC} (PID: $pid)"
-                daemon_mode="Monitors load and auto-rebalances"
+                daemon_running=true
+                echo -e "  Status: ${GREEN}Running${NC} (PID: $pid)"
+                echo -e "  ${DIM}Monitors load every 3s and auto-rebalances${NC}"
             fi
         fi
 
-        echo -e "  Status: $daemon_status"
-        [[ -n "$daemon_mode" ]] && echo -e "  Mode: $daemon_mode"
+        if [[ "$daemon_running" == "false" ]]; then
+            echo -e "  Status: ${DIM}Stopped${NC}"
+        fi
+
         echo ""
 
         # Show current host order
@@ -1208,6 +1213,7 @@ menu_load_balancer() {
         if [[ "$host_count" -lt 2 ]]; then
             show_warning "Load balancing requires at least 2 nodes"
             show_info "Add more nodes with 'Add a new Mac node'"
+            echo -e "${DIM}The load balancer starts automatically when you add a 2nd node.${NC}"
             echo ""
             wait_for_user "Press Enter to return to menu"
             return
@@ -1218,13 +1224,21 @@ menu_load_balancer() {
             echo "  Registered hosts: $host_count"
         }
 
+        echo -e "${DIM}Tip: View logs in the Monitor (📊)${NC}"
+        echo ""
+
         local choice
-        choice=$(gum choose \
-            "▶️  Start Load Balancer" \
-            "⏹️  Stop Load Balancer" \
-            "⚖️  Rebalance Now" \
-            "📋 View Logs" \
-            "⬅️  Back to Main Menu")
+        if [[ "$daemon_running" == "true" ]]; then
+            choice=$(gum choose \
+                "⏹️  Stop Load Balancer" \
+                "⚖️  Rebalance Now" \
+                "⬅️  Back to Main Menu")
+        else
+            choice=$(gum choose \
+                "▶️  Start Load Balancer" \
+                "⚖️  Rebalance Now" \
+                "⬅️  Back to Main Menu")
+        fi
 
         case "$choice" in
             "▶️  Start Load Balancer")
@@ -1242,18 +1256,6 @@ menu_load_balancer() {
             "⚖️  Rebalance Now")
                 echo ""
                 "$SCRIPT_DIR/load-balancer.sh" balance
-                echo ""
-                wait_for_user "Press Enter to continue"
-                ;;
-            "📋 View Logs")
-                echo ""
-                if [[ -f "/tmp/transcodarr-lb.log" ]]; then
-                    echo "Last 20 log entries:"
-                    echo ""
-                    tail -20 /tmp/transcodarr-lb.log
-                else
-                    echo "No log file found yet"
-                fi
                 echo ""
                 wait_for_user "Press Enter to continue"
                 ;;
@@ -1457,6 +1459,7 @@ menu_uninstall_node() {
         if ask_confirm "Also remove $mac_ip from rffmpeg?"; then
             if sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg remove "$mac_ip" 2>/dev/null; then
                 show_result true "Node removed from rffmpeg"
+                manage_load_balancer "$JELLYFIN_CONTAINER"
             else
                 show_warning "Could not remove from rffmpeg (may not be registered)"
             fi
@@ -1528,6 +1531,7 @@ menu_uninstall_synology() {
                     show_result true "Removed $node_ip from rffmpeg"
                 fi
             done <<< "$nodes"
+            manage_load_balancer "$JELLYFIN_CONTAINER"
         fi
 
         # Remove rffmpeg config from Jellyfin
@@ -1718,6 +1722,7 @@ menu_uninstall_both() {
                 fi
             done <<< "$registered_nodes"
             show_result true "Removed all nodes from rffmpeg"
+            manage_load_balancer "$JELLYFIN_CONTAINER"
         fi
 
         # Remove rffmpeg config

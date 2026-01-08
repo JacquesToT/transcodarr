@@ -662,6 +662,55 @@ get_rffmpeg_host_order() {
         sort -t' ' -k3 -n
 }
 
+# Manage load balancer based on node count
+# Auto-starts when 2+ nodes, auto-stops when 1 node
+# Called after adding/removing nodes
+manage_load_balancer() {
+    local container="${1:-$JELLYFIN_CONTAINER}"
+    [[ -z "$container" ]] && container="jellyfin"
+
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    local lb_script="$script_dir/load-balancer.sh"
+    local pid_file="/tmp/transcodarr-lb.pid"
+
+    # Check if load-balancer.sh exists
+    if [[ ! -x "$lb_script" ]]; then
+        return 0
+    fi
+
+    # Count nodes
+    local host_count
+    host_count=$(sudo docker exec "$container" rffmpeg status 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')
+
+    # Check if daemon is running
+    local daemon_running=false
+    if [[ -f "$pid_file" ]]; then
+        local pid
+        pid=$(cat "$pid_file")
+        if kill -0 "$pid" 2>/dev/null; then
+            daemon_running=true
+        fi
+    fi
+
+    if [[ "$host_count" -ge 2 ]]; then
+        # 2+ nodes: ensure load balancer is running
+        if [[ "$daemon_running" == "false" ]]; then
+            show_info "Starting load balancer (2+ nodes detected)..."
+            "$lb_script" start >/dev/null 2>&1 &
+            sleep 1
+            show_result true "Load balancer started automatically"
+        fi
+    else
+        # 0-1 nodes: stop load balancer if running
+        if [[ "$daemon_running" == "true" ]]; then
+            show_info "Stopping load balancer (less than 2 nodes)..."
+            "$lb_script" stop >/dev/null 2>&1
+            show_result true "Load balancer stopped"
+        fi
+    fi
+}
+
 # ============================================================================
 # SUMMARY
 # ============================================================================

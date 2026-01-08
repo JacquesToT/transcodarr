@@ -461,17 +461,19 @@ class DataCollector:
         return hosts
 
     async def get_rffmpeg_logs(self, lines: int = 50) -> list[str]:
-        """Get recent rffmpeg logs from Jellyfin container.
+        """Get recent rffmpeg and load balancer logs.
 
         Works in both modes:
-        - Synology: Direct docker command
-        - Mac: SSH to NAS then docker command
+        - Synology: Direct docker command / file read
+        - Mac: SSH to NAS then docker command / file read
         """
         if self._data.status.ssh_status != ConnectionStatus.CONNECTED:
             return []
 
+        all_logs: list[str] = []
+
+        # Get rffmpeg logs from container
         try:
-            # get_docker_command handles both local Synology and remote Mac modes
             cmd = self.config.get_docker_command(
                 f"tail -{lines} /config/log/rffmpeg.log 2>/dev/null || echo 'No logs'"
             )
@@ -486,16 +488,84 @@ class DataCollector:
             )
 
             output = stdout.decode().strip()
-            if "No logs" in output:
-                return []
-
-            log_lines = output.split("\n")
-            self._data.logs = log_lines
-            self._parse_history_from_logs(log_lines)
-            return log_lines
-
+            if "No logs" not in output:
+                for line in output.split("\n"):
+                    if line.strip():
+                        all_logs.append(f"[rffmpeg] {line}")
         except Exception:
-            return []
+            pass
+
+        # Get load balancer logs from host
+        try:
+            lb_logs = await self._get_load_balancer_logs(lines=20)
+            for line in lb_logs:
+                if line.strip():
+                    all_logs.append(f"[balancer] {line}")
+        except Exception:
+            pass
+
+        # Sort all logs by timestamp (best effort)
+        all_logs = self._sort_logs_by_timestamp(all_logs)
+
+        self._data.logs = all_logs
+        self._parse_history_from_logs(all_logs)
+        return all_logs
+
+    async def _get_load_balancer_logs(self, lines: int = 20) -> list[str]:
+        """Get load balancer logs from /tmp/transcodarr-lb.log.
+
+        Uses asyncio.create_subprocess_exec for safe command execution.
+        """
+        lb_log_path = "/tmp/transcodarr-lb.log"
+
+        try:
+            if self.config.is_synology:
+                # Direct file read on Synology using tail
+                proc = await asyncio.create_subprocess_exec(
+                    "tail", f"-{lines}", lb_log_path,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+            else:
+                # SSH to NAS and read file using explicit arguments
+                proc = await asyncio.create_subprocess_exec(
+                    "ssh", "-o", "ConnectTimeout=5",
+                    f"{self.config.nas_user}@{self.config.nas_ip}",
+                    f"tail -{lines} {lb_log_path} 2>/dev/null",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+
+            stdout, _ = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=5
+            )
+
+            output = stdout.decode().strip()
+            if output:
+                return output.split("\n")
+        except Exception:
+            pass
+
+        return []
+
+    def _sort_logs_by_timestamp(self, logs: list[str]) -> list[str]:
+        """Sort logs by timestamp, newest last."""
+        def extract_timestamp(line: str) -> str:
+            # Try to extract timestamp like [2024-01-08 15:30:45]
+            match = re.search(r'\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]', line)
+            if match:
+                return match.group(1)
+            # Also try format without brackets
+            match = re.search(r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})', line)
+            if match:
+                return match.group(1)
+            return ""
+
+        try:
+            return sorted(logs, key=extract_timestamp)
+        except Exception:
+            return logs
 
     def _parse_history_from_logs(self, log_lines: list[str]) -> list[TranscodeHistoryItem]:
         """Parse transcode history from log lines."""

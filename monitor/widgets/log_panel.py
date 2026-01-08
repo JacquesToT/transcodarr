@@ -46,7 +46,7 @@ class LogPanel(Static):
         self._logs: list[str] = []
 
     def compose(self) -> ComposeResult:
-        yield Static("Logs (rffmpeg)", id="log-title")
+        yield Static("Logs", id="log-title")
         yield RichLog(id="log-content", highlight=True, markup=True)
 
     def update_logs(self, logs: list[str]) -> None:
@@ -104,13 +104,29 @@ class LogPanel(Static):
         """Apply styling to a log line based on content."""
         lower = line.lower()
 
+        # Determine log source and style prefix
+        prefix_style = ""
+        if line.startswith("[balancer]"):
+            prefix_style = "[magenta][balancer][/magenta]"
+            line = line[10:].strip()  # Remove prefix for content styling
+        elif line.startswith("[rffmpeg]"):
+            prefix_style = "[cyan][rffmpeg][/cyan]"
+            line = line[9:].strip()  # Remove prefix for content styling
+
+        # Style content based on keywords
         if "error" in lower or "failed" in lower:
-            return f"[red]{line}[/red]"
-        elif "success" in lower or "completed" in lower:
-            return f"[green]{line}[/green]"
+            content = f"[red]{line}[/red]"
+        elif "success" in lower or "completed" in lower or "reorder" in lower:
+            content = f"[green]{line}[/green]"
         elif "warning" in lower:
-            return f"[yellow]{line}[/yellow]"
-        elif "ssh" in lower or "connecting" in lower:
-            return f"[cyan]{line}[/cyan]"
+            content = f"[yellow]{line}[/yellow]"
+        elif "ssh" in lower or "connecting" in lower or "started" in lower:
+            content = f"[cyan]{line}[/cyan]"
+        elif "host order" in lower or "moving" in lower:
+            content = f"[blue]{line}[/blue]"
         else:
-            return f"[dim]{line}[/dim]"
+            content = f"[dim]{line}[/dim]"
+
+        if prefix_style:
+            return f"{prefix_style} {content}"
+        return content
