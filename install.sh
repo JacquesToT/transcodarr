@@ -562,6 +562,10 @@ wizard_synology() {
                 echo "$add_output" | grep -v "DeprecationWarning" || true
                 echo ""
                 show_result true "Mac added to rffmpeg!"
+
+                # Reorder hosts by weight (workaround for rffmpeg bug)
+                reorder_rffmpeg_hosts "$JELLYFIN_CONTAINER"
+
                 echo ""
                 show_info "Current rffmpeg status:"
                 sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg status 2>/dev/null || true
@@ -808,6 +812,10 @@ wizard_add_node() {
         if add_output=$(sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg add "$mac_ip" --weight "$weight" 2>&1); then
             echo "$add_output" | grep -v "DeprecationWarning" || true
             show_result true "Mac added to rffmpeg with weight $weight!"
+
+            # Reorder hosts by weight (workaround for rffmpeg bug)
+            reorder_rffmpeg_hosts "$JELLYFIN_CONTAINER"
+
             echo ""
             sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg status 2>/dev/null || true
         else
@@ -1146,6 +1154,10 @@ menu_change_weight() {
     if sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg remove "$selected_node" 2>/dev/null; then
         if sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg add "$selected_node" --weight "$new_weight" 2>/dev/null; then
             show_result true "Weight updated to $new_weight for $selected_node"
+
+            # Reorder hosts by weight (workaround for rffmpeg bug)
+            reorder_rffmpeg_hosts "$JELLYFIN_CONTAINER"
+
             echo ""
             sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg status 2>/dev/null || true
         else

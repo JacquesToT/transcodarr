@@ -546,6 +546,56 @@ finalize_rffmpeg_setup() {
 }
 
 # ============================================================================
+# RFFMPEG HOST MANAGEMENT
+# ============================================================================
+
+# Reorder rffmpeg hosts by weight (highest weight first = lowest ID)
+# This works around rffmpeg's broken weighted selection algorithm
+# rffmpeg selects hosts by ID order, not by weight, so we ensure
+# higher-weight hosts have lower IDs by re-adding them in weight order
+reorder_rffmpeg_hosts() {
+    local container="${1:-$JELLYFIN_CONTAINER}"
+    [[ -z "$container" ]] && container="jellyfin"
+
+    # Get current hosts: "IP WEIGHT" per line, sorted by weight descending
+    local hosts
+    hosts=$(sudo docker exec "$container" rffmpeg status 2>/dev/null | \
+        tail -n +2 | \
+        awk '{print $1, $4}' | \
+        sort -t' ' -k2 -rn)
+
+    if [[ -z "$hosts" ]]; then
+        return 0  # No hosts to reorder
+    fi
+
+    # Count hosts - only reorder if more than 1
+    local host_count
+    host_count=$(echo "$hosts" | wc -l | tr -d ' ')
+    if [[ "$host_count" -lt 2 ]]; then
+        return 0  # Nothing to reorder with single host
+    fi
+
+    show_info "Reordering hosts by weight (highest first)..."
+
+    # Remove all hosts
+    while IFS= read -r line; do
+        local ip weight
+        ip=$(echo "$line" | awk '{print $1}')
+        sudo docker exec "$container" rffmpeg remove "$ip" 2>/dev/null || true
+    done <<< "$hosts"
+
+    # Re-add in weight order (highest first = lowest ID)
+    while IFS= read -r line; do
+        local ip weight
+        ip=$(echo "$line" | awk '{print $1}')
+        weight=$(echo "$line" | awk '{print $2}')
+        sudo docker exec "$container" rffmpeg add "$ip" --weight "$weight" 2>/dev/null || true
+    done <<< "$hosts"
+
+    show_result true "Hosts reordered by weight"
+}
+
+# ============================================================================
 # SUMMARY
 # ============================================================================
 
