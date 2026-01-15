@@ -84,7 +84,10 @@ This project creates network pathways between your NAS and Mac(s). Understand th
          └───────────────────────────┘
               Shared media & cache
 ```
+---
+**Known Limitations:**
 
+---
 ## Requirements
 
 **Synology NAS:**
@@ -401,6 +404,21 @@ Configures SSH settings for the Transcodarr Monitor (TUI dashboard):
 |-------|--------|-------|
 | 1080p BluRay (33 Mbps) | H.264 4 Mbps | ~7x realtime |
 | 720p video | H.264 2 Mbps | ~13x realtime |
+
+---
+
+## Known Limitations
+
+**Starting multiple streams simultaneously**
+
+rffmpeg uses SQLite to track active transcoding jobs. Starting 4+ streams at the exact same moment can cause database lock conflicts, resulting in nodes being marked as "bad" and streams falling back to localhost.
+
+**Workaround:** Start streams with 2-3 seconds between them. Once running, multiple concurrent streams work fine - it's only the simultaneous *start* that can cause issues.
+
+**If you hit a database lock:**
+```bash
+sudo docker restart jellyfin
+```
 
 ---
 
