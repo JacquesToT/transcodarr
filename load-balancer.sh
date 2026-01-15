@@ -108,9 +108,14 @@ get_node_load() {
 
     # Use SSH to get actual ffmpeg process count on the Mac
     # This is more accurate than rffmpeg's tracking which can have stale entries
+    # Note: Must use the SSH key from the container and run as abc user
     local count
-    count=$(sudo docker exec "$container" ssh -o ConnectTimeout=2 -o BatchMode=yes \
-        -o StrictHostKeyChecking=no "${mac_user}@${ip}" \
+    count=$(sudo docker exec -u abc "$container" ssh \
+        -o ConnectTimeout=2 \
+        -o BatchMode=yes \
+        -o StrictHostKeyChecking=no \
+        -i /var/lib/jellyfin/.ssh/id_rsa \
+        "${mac_user}@${ip}" \
         "pgrep -c ffmpeg" 2>/dev/null || echo "0")
 
     # Ensure we return a number
