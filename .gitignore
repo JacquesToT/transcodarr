@@ -1,0 +1,45 @@
+# SSH keys (never commit private keys)
+ssh/id_rsa
+ssh/id_rsa.pub
+ssh/*.pem
+*.key
+
+# Generated output folder (contains SSH keys and user-specific config)
+output/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+.claude/
+*.swp
+*.swo
+
+# Git worktrees
+.worktrees/
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.local
+
+# Python virtual environment
+.venv/
+__pycache__/
+*.pyc
+
+# Node modules (for future GUI)
+node_modules/
+dist/
+build/
+*.code-workspace
+
+# FewWord context plugin
+.fewword/scratch/
+.fewword/index/

@@ -1,0 +1,42 @@
+# rffmpeg Configuration Template for Transcodarr
+# This is an EXAMPLE file - the installer generates a customized version
+#
+# Replace the placeholders below with your actual values:
+#   YOUR_MAC_USERNAME = Your Mac username (run `whoami` on Mac to find it)
+#
+# After running the installer, this file will be generated at:
+#   /path/to/jellyfin/config/rffmpeg/rffmpeg.yml
+
+rffmpeg:
+    logging:
+        log_to_file: true
+        logfile: "/config/log/rffmpeg.log"
+        debug: false
+
+    directories:
+        state: "/config/rffmpeg"
+        persist: "/config/rffmpeg/persist"
+        owner: abc
+        group: abc
+
+    remote:
+        # SSH user for Mac transcode node
+        # Use your Mac username (may contain spaces, e.g., "John Doe")
+        user: "YOUR_MAC_USERNAME"
+        persist: 300
+        args:
+            - "-o"
+            - "StrictHostKeyChecking=no"
+            - "-o"
+            - "UserKnownHostsFile=/dev/null"
+            - "-i"
+            - "/config/rffmpeg/.ssh/id_rsa"
+
+    commands:
+        ssh: "/usr/bin/ssh"
+        # FFmpeg paths on Mac (Homebrew on Apple Silicon)
+        ffmpeg: "/opt/homebrew/bin/ffmpeg"
+        ffprobe: "/opt/homebrew/bin/ffprobe"
+        # Fallback to local ffmpeg if all remotes fail
+        fallback_ffmpeg: "/usr/lib/jellyfin-ffmpeg/ffmpeg"
+        fallback_ffprobe: "/usr/lib/jellyfin-ffmpeg/ffprobe"
