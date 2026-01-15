@@ -271,27 +271,63 @@ reorder_by_load() {
 
     log_info "Reordering: moving $best_host to front (was: $current_first)"
 
-    # Remove all hosts
+    # SAFETY: Get ALL hosts from rffmpeg first (not just reachable ones)
+    local all_hosts
+    all_hosts=$(echo "$RFFMPEG_STATUS_CACHE" | tail -n +2 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | awk '{print $1, $4}')
+
+    if [[ -z "$all_hosts" ]]; then
+        log_error "No hosts found in rffmpeg - aborting reorder to prevent data loss"
+        return 1
+    fi
+
+    # Count hosts to ensure we don't lose any
+    local original_count
+    original_count=$(echo "$all_hosts" | wc -l | tr -d ' ')
+
+    # Build reordered list: best_host first, then others
     local hosts_to_add=""
+
+    # First add the best host
+    local best_weight
+    best_weight=$(echo "$all_hosts" | grep "^$best_host " | awk '{print $2}')
+    [[ -z "$best_weight" ]] && best_weight=1
+    hosts_to_add+="$best_host $best_weight"$'\n'
+
+    # Then add remaining hosts
     while read -r line; do
         local ip weight
         ip=$(echo "$line" | awk '{print $1}')
         weight=$(echo "$line" | awk '{print $2}')
 
         [[ -z "$ip" ]] && continue
+        [[ "$ip" == "$best_host" ]] && continue  # Already added
 
-        sudo docker exec "$container" rffmpeg remove "$ip" 2>/dev/null || true
         hosts_to_add+="$ip $weight"$'\n'
-    done <<< "$sorted_hosts"
+    done <<< "$all_hosts"
 
-    # Re-add in order (best first = lowest ID)
+    # Verify we have same number of hosts
+    local new_count
+    new_count=$(echo "$hosts_to_add" | grep -v '^$' | wc -l | tr -d ' ')
+
+    if [[ "$new_count" -ne "$original_count" ]]; then
+        log_error "Host count mismatch ($new_count vs $original_count) - aborting reorder"
+        return 1
+    fi
+
+    # Now safe to remove and re-add
+    while read -r line; do
+        local ip
+        ip=$(echo "$line" | awk '{print $1}')
+        [[ -z "$ip" ]] && continue
+        sudo docker exec "$container" rffmpeg remove "$ip" 2>/dev/null || true
+    done <<< "$all_hosts"
+
+    # Re-add in order
     while read -r line; do
         local ip weight
         ip=$(echo "$line" | awk '{print $1}')
         weight=$(echo "$line" | awk '{print $2}')
-
         [[ -z "$ip" ]] && continue
-
         sudo docker exec "$container" rffmpeg add "$ip" --weight "$weight" 2>/dev/null || true
     done <<< "$hosts_to_add"
 
