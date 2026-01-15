@@ -190,8 +190,10 @@ get_hosts_with_load() {
         mac_user=$(whoami)
     fi
 
-    # Refresh the cache first
-    refresh_rffmpeg_cache "$container"
+    # Refresh the cache if empty (caller may have already refreshed)
+    if [[ -z "$RFFMPEG_STATUS_CACHE" ]]; then
+        refresh_rffmpeg_cache "$container"
+    fi
 
     # Get hosts from cached status (filter to only lines starting with IP addresses)
     local hosts
@@ -305,6 +307,9 @@ show_hosts() {
 
     echo -e "${CYAN}${BOLD}Current Node Status:${NC}"
     echo ""
+
+    # Refresh cache FIRST (before subshell calls lose the cache)
+    refresh_rffmpeg_cache "$container"
 
     # Get hosts with load info
     local hosts_with_load
