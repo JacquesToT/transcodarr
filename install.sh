@@ -492,12 +492,6 @@ wizard_synology() {
     show_step 8 8 "Register Mac with rffmpeg"
 
     echo ""
-    show_info "If you followed Step 2 of the README, DOCKER_MODS is already configured."
-    show_info "Make sure your Jellyfin container has been restarted with the new settings."
-    echo ""
-    show_info "Note: Jellyfin can take a while to start up. Wait until it's accessible before continuing."
-    echo ""
-
     if ask_confirm "Is Jellyfin running and accessible?"; then
         echo ""
         show_info "Waiting 10 seconds for rffmpeg to initialize..."
