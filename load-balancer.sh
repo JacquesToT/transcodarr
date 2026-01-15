@@ -108,34 +108,32 @@ refresh_rffmpeg_cache() {
     RFFMPEG_STATUS_CACHE=$(sudo docker exec "$container" rffmpeg status 2>/dev/null)
 }
 
-# Get active process count for a node from cached rffmpeg status
-# Counts "PID XXXXX:" occurrences belonging to each host
+# Get active ffmpeg process count for a node via SSH
+# Uses same method as Monitor: ps aux | grep ffmpeg
 get_node_load() {
     local ip="$1"
-    local mac_user="$2"  # unused but kept for compatibility
+    local mac_user="$2"
     local container="${3:-$JELLYFIN_CONTAINER}"
 
-    # Refresh cache if empty
-    if [[ -z "$RFFMPEG_STATUS_CACHE" ]]; then
-        refresh_rffmpeg_cache "$container"
-    fi
-
-    # Use awk to count PIDs for this host
-    # Logic: when we see an IP, check if it matches. If yes, count all "PID" until next IP
+    # SSH to Mac and count ffmpeg processes (same method as Monitor)
+    # Key path: /config/rffmpeg/.ssh/id_rsa (inside container)
     local count
-    count=$(echo "$RFFMPEG_STATUS_CACHE" | awk -v target="$ip" '
-        /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/ {
-            in_host = ($1 == target)
-        }
-        in_host && /PID [0-9]+:/ {
-            pid_count++
-        }
-        END {
-            print pid_count + 0
-        }
-    ')
+    count=$(sudo docker exec "$container" ssh \
+        -o ConnectTimeout=3 \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR \
+        -o BatchMode=yes \
+        -i /config/rffmpeg/.ssh/id_rsa \
+        "${mac_user}@${ip}" \
+        "ps aux | grep -c '[f]fmpeg'" 2>/dev/null || echo "0")
 
-    echo "$count"
+    # Ensure we return a number
+    if [[ "$count" =~ ^[0-9]+$ ]]; then
+        echo "$count"
+    else
+        echo "0"
+    fi
 }
 
 # Get state (active/idle) from cached rffmpeg status
