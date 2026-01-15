@@ -99,41 +99,64 @@ get_mac_user() {
 # LOAD MONITORING FUNCTIONS
 # ============================================================================
 
-# Get active process count for a node
-# Uses SSH pgrep for real-time accuracy (rffmpeg tracking can have stale PIDs)
-get_node_load() {
-    local ip="$1"
-    local mac_user="$2"
-    local container="${3:-$JELLYFIN_CONTAINER}"
+# Global cache for rffmpeg status (to avoid multiple calls)
+RFFMPEG_STATUS_CACHE=""
 
-    # Use SSH to get actual ffmpeg process count on the Mac
-    # This is more accurate than rffmpeg's tracking which can have stale entries
-    # Note: Must use the SSH key from the container and run as abc user
-    local count
-    count=$(sudo docker exec -u abc "$container" ssh \
-        -o ConnectTimeout=2 \
-        -o BatchMode=yes \
-        -o StrictHostKeyChecking=no \
-        -i /var/lib/jellyfin/.ssh/id_rsa \
-        "${mac_user}@${ip}" \
-        "pgrep -c ffmpeg" 2>/dev/null || echo "0")
-
-    # Ensure we return a number
-    if [[ "$count" =~ ^[0-9]+$ ]]; then
-        echo "$count"
-    else
-        echo "0"
-    fi
+# Refresh the rffmpeg status cache
+refresh_rffmpeg_cache() {
+    local container="${1:-$JELLYFIN_CONTAINER}"
+    RFFMPEG_STATUS_CACHE=$(sudo docker exec "$container" rffmpeg status 2>/dev/null)
 }
 
-# Get state (active/idle) from rffmpeg status
+# Get active process count for a node from cached rffmpeg status
+# Counts "PID XXXXX:" lines belonging to each host
+get_node_load() {
+    local ip="$1"
+    local mac_user="$2"  # unused but kept for compatibility
+    local container="${3:-$JELLYFIN_CONTAINER}"
+
+    # Refresh cache if empty
+    if [[ -z "$RFFMPEG_STATUS_CACHE" ]]; then
+        refresh_rffmpeg_cache "$container"
+    fi
+
+    # Parse rffmpeg status to count PIDs for this host
+    # Format: IP starts a new host block, subsequent lines with "PID XXXXX:" belong to it
+    local in_host=false
+    local pid_count=0
+
+    while IFS= read -r line; do
+        # Check if line starts with an IP (new host block)
+        if [[ "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            if [[ "$line" =~ ^${ip}[[:space:]] ]]; then
+                in_host=true
+                # Check if first line has a PID
+                if [[ "$line" =~ PID\ [0-9]+: ]]; then
+                    ((pid_count++))
+                fi
+            else
+                in_host=false
+            fi
+        elif [[ "$in_host" == true ]] && [[ "$line" =~ PID\ [0-9]+: ]]; then
+            ((pid_count++))
+        fi
+    done <<< "$RFFMPEG_STATUS_CACHE"
+
+    echo "$pid_count"
+}
+
+# Get state (active/idle) from cached rffmpeg status
 get_node_state() {
     local ip="$1"
     local container="${2:-$JELLYFIN_CONTAINER}"
 
+    # Refresh cache if empty
+    if [[ -z "$RFFMPEG_STATUS_CACHE" ]]; then
+        refresh_rffmpeg_cache "$container"
+    fi
+
     local state
-    state=$(sudo docker exec "$container" rffmpeg status 2>/dev/null | \
-        grep -E "^${ip}[[:space:]]" | awk '{print $5}')
+    state=$(echo "$RFFMPEG_STATUS_CACHE" | grep -E "^${ip}[[:space:]]" | awk '{print $5}')
 
     if [[ "$state" == "active" ]]; then
         echo "active"
@@ -174,9 +197,12 @@ get_hosts_with_load() {
         mac_user=$(whoami)
     fi
 
-    # Get hosts from rffmpeg (filter to only lines starting with IP addresses)
+    # Refresh the cache first
+    refresh_rffmpeg_cache "$container"
+
+    # Get hosts from cached status (filter to only lines starting with IP addresses)
     local hosts
-    hosts=$(sudo docker exec "$container" rffmpeg status 2>/dev/null | tail -n +2 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
+    hosts=$(echo "$RFFMPEG_STATUS_CACHE" | tail -n +2 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
 
     if [[ -z "$hosts" ]]; then
         return 1
@@ -237,7 +263,7 @@ reorder_by_load() {
     # Check if reordering is needed
     # Get current first host (lowest ID) - filter to only IP addresses
     local current_first
-    current_first=$(sudo docker exec "$container" rffmpeg status 2>/dev/null | \
+    current_first=$(echo "$RFFMPEG_STATUS_CACHE" | \
         tail -n +2 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | sort -t' ' -k3 -n | head -1 | awk '{print $1}')
 
     # Get best host (lowest score)
@@ -296,9 +322,9 @@ show_hosts() {
         return 1
     fi
 
-    # Get current rffmpeg order (by ID) - filter to only IP addresses
+    # Get current rffmpeg order (by ID) from cache - filter to only IP addresses
     local current_order
-    current_order=$(sudo docker exec "$container" rffmpeg status 2>/dev/null | \
+    current_order=$(echo "$RFFMPEG_STATUS_CACHE" | \
         tail -n +2 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | sort -t' ' -k3 -n | awk '{print $1}')
 
     # Display each host
@@ -370,11 +396,14 @@ daemon_loop() {
     while true; do
         sleep "$CHECK_INTERVAL"
 
+        # Clear cache before each cycle
+        RFFMPEG_STATUS_CACHE=""
+
         # Reorder hosts based on current load
         if reorder_by_load "$JELLYFIN_CONTAINER" "true"; then
-            # Log if order changed
+            # Log if order changed (cache is now populated by reorder_by_load)
             local current_order
-            current_order=$(sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg status 2>/dev/null | \
+            current_order=$(echo "$RFFMPEG_STATUS_CACHE" | \
                 tail -n +2 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | sort -t' ' -k3 -n | awk '{print $1}' | tr '\n' ' ')
 
             if [[ "$current_order" != "$last_order" ]] && [[ -n "$last_order" ]]; then
@@ -402,9 +431,10 @@ start_daemon() {
         fi
     fi
 
-    # Check host count (filter to only IP addresses)
+    # Refresh cache and check host count (filter to only IP addresses)
+    refresh_rffmpeg_cache "$JELLYFIN_CONTAINER"
     local host_count
-    host_count=$(sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg status 2>/dev/null | tail -n +2 | grep -cE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || echo "0")
+    host_count=$(echo "$RFFMPEG_STATUS_CACHE" | tail -n +2 | grep -cE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || echo "0")
     if [[ "$host_count" -lt 2 ]]; then
         echo -e "${YELLOW}Warning: Only $host_count host(s) configured. Load balancing requires at least 2 hosts.${NC}"
         echo -e "${DIM}Add more nodes with: ./add-node.sh${NC}"
