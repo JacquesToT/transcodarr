@@ -1759,12 +1759,35 @@ menu_fix_ssh_keys() {
     show_info "Fix rffmpeg SSH Keys"
     echo ""
 
-    # Get registered nodes
-    local nodes
-    nodes=$(get_registered_nodes)
+    # Get registered nodes with their weights
+    local status
+    status=$(sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg status 2>/dev/null || echo "")
 
-    if [[ -z "$nodes" ]]; then
+    if [[ -z "$status" ]] || [[ $(echo "$status" | wc -l) -lt 2 ]]; then
         show_warning "No nodes registered with rffmpeg"
+        wait_for_user "Press Enter to return to menu"
+        return
+    fi
+
+    # Parse node data (IP and Weight)
+    declare -A node_weights
+    while read -r line; do
+        # Skip header and empty lines
+        [[ "$line" =~ ^Hostname ]] && continue
+        [[ -z "$line" ]] && continue
+
+        # Extract IP and Weight from rffmpeg status
+        local ip=$(echo "$line" | awk '{print $1}')
+        local weight=$(echo "$line" | awk '{print $4}')
+
+        # Validate IP format
+        if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            node_weights["$ip"]="$weight"
+        fi
+    done <<< "$status"
+
+    if [[ ${#node_weights[@]} -eq 0 ]]; then
+        show_warning "Could not parse any nodes from rffmpeg status"
         wait_for_user "Press Enter to return to menu"
         return
     fi
@@ -1788,9 +1811,7 @@ menu_fix_ssh_keys() {
     local success_count=0
     local fail_count=0
 
-    while IFS= read -r node_ip; do
-        [[ -z "$node_ip" ]] && continue
-
+    for node_ip in "${!node_weights[@]}"; do
         echo -n "  $node_ip: "
 
         # Check if already working
@@ -1814,19 +1835,63 @@ menu_fix_ssh_keys() {
             echo -e "${RED}✗ Failed${NC}"
             ((fail_count++))
         fi
-    done <<< "$nodes"
+    done
 
+    # Step 3: Reset rffmpeg database to clear "bad" host cache
     echo ""
-    if [[ $fail_count -eq 0 ]]; then
-        show_result true "All $success_count nodes have working SSH"
+    show_info "Step 3: Resetting rffmpeg database to clear 'bad' host cache..."
+    if sudo docker exec -i "$JELLYFIN_CONTAINER" rffmpeg init <<< "y" &>/dev/null; then
+        show_result true "Database reset"
     else
-        show_warning "$success_count working, $fail_count failed"
+        show_warning "Database reset failed, but continuing..."
+    fi
+
+    # Step 4: Re-add all nodes with their original weights
+    echo ""
+    show_info "Step 4: Re-registering nodes with rffmpeg..."
+    echo ""
+
+    local readd_success=0
+    local readd_fail=0
+
+    for node_ip in "${!node_weights[@]}"; do
+        local weight="${node_weights[$node_ip]}"
+        echo -n "  $node_ip (weight $weight): "
+
+        if sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg add "$node_ip" --weight "$weight" &>/dev/null; then
+            echo -e "${GREEN}✓ Re-added${NC}"
+            ((readd_success++))
+        else
+            echo -e "${RED}✗ Failed${NC}"
+            ((readd_fail++))
+        fi
+    done
+
+    # Reorder hosts by weight (workaround for rffmpeg bug)
+    reorder_rffmpeg_hosts "$JELLYFIN_CONTAINER"
+    manage_load_balancer "$JELLYFIN_CONTAINER"
+
+    # Summary
+    echo ""
+    if [[ $fail_count -eq 0 ]] && [[ $readd_fail -eq 0 ]]; then
+        show_result true "All nodes fixed and re-registered successfully!"
+    else
+        if [[ $fail_count -gt 0 ]]; then
+            show_warning "SSH: $success_count working, $fail_count failed"
+        fi
+        if [[ $readd_fail -gt 0 ]]; then
+            show_warning "Re-registration: $readd_success succeeded, $readd_fail failed"
+        fi
         echo ""
         show_info "For failed nodes, ensure:"
         echo "  • Remote Login is enabled on the Mac"
         echo "  • Firewall allows SSH (port 22)"
         echo "  • Correct password was entered"
     fi
+
+    echo ""
+    show_info "Current rffmpeg status:"
+    sudo docker exec "$JELLYFIN_CONTAINER" rffmpeg status 2>/dev/null || true
 
     echo ""
     wait_for_user "Press Enter to return to menu"

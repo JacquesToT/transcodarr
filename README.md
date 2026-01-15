@@ -24,11 +24,11 @@ Test video:
 </td>
 <td align="center">
 <img src="screenshots/Schermafbeelding 2026-01-15 13.31.16.png" width="100%"><br>
-<small><i>Before Transcodarr - Synology couldn't handle HEVC transcoding</i></small>
+<small><i>No Transcodarr - 11 fps transcode frames</i></small>
 </td>
 <td align="center">
 <img src="screenshots/Schermafbeelding 2026-01-15 13.23.54.png" width="100%"><br>
-<small><i>With Transcodarr</i></small>
+<small><i>With Transcodarr - 70 fps transcode frames</i></small>
 </td>
 </tr>
 </table>  
@@ -115,7 +115,18 @@ Collect these values:
 1. Open **System Settings** → **General** → **Sharing**
 2. Enable **"Remote Login"**
 <img src="screenshots/Schermafbeelding 2026-01-15 11.37.46 copy.png" width="25%">
+
+
+Open the terminal and install homebrew:
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+And then install gum:
+```bash
+brew install gum
+```
 ## Step 1.2: Enable SSH login on your Synology
+Go to DSM
 
 1. Open **Control Panel** → **Terminal & SNMP**
 2. Enable **"SSH Service"**
@@ -294,10 +305,13 @@ To add more Macs to your transcoding cluster:
 
 > **Important:** All Macs must use the **same username** for SSH.
 > rffmpeg uses a single SSH user configuration for all nodes.
+If the username on the macs is different, you need to make a new admin account on the mac you want to add.  
 
 1. Enable **Remote Login** on the new Mac (System Settings → Sharing)
-2. Run the installer on your Synology: `cd ~/Transcodarr && ./install.sh`
-3. Select **"➕ Add a new Mac node"**
+2. install homebrew on the new mac
+3. install gum on the new mac `brew install gum`
+4. Run the installer on your Synology: `cd ~/Transcodarr && ./install.sh`
+5. Select **"➕ Add a new Mac node"**
 
 The installer will configure everything automatically.
 When asked for the weight choose what the second Mac should be able to handle.
