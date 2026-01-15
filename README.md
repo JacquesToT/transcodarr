@@ -308,10 +308,17 @@ To add more Macs to your transcoding cluster:
 If the username on the macs is different, you need to make a new admin account on the mac you want to add.  
 
 1. Enable **Remote Login** on the new Mac (System Settings → Sharing)
-2. install homebrew on the new mac
-3. install gum on the new mac `brew install gum`
-4. Run the installer on your Synology: `cd ~/Transcodarr && ./install.sh`
-5. Select **"➕ Add a new Mac node"**
+2. Open the terminal and install homebrew on the new mac 
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+``` 
+And then install gum:
+```bash
+brew install gum
+```
+
+3. Run the installer on your Synology: `cd ~/Transcodarr && ./install.sh` 
+4. Select **"➕ Add a new Mac node"**
 
 The installer will configure everything automatically.
 When asked for the weight choose what the second Mac should be able to handle.
