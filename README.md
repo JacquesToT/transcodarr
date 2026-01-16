@@ -29,8 +29,11 @@ Test video:
 <small><i>No Transcodarr - 11 fps transcode frames</i></small>
 </td>
 <td align="center">
-<img src="screenshots/Schermafbeelding 2026-01-15 13.23.54.png" width="100%"><br>
-<small><i>With Transcodarr - 70 fps transcode frames</i></small>
+<img src="screenshots/Schermafbeelding 2026-01-16 13.46.33.png" width="100%"><br>
+<small><i>With Transcodarr - 125 fps transcode frames (with tone mapping, wich means transcoding from HDR to SDR)</i></small>
+</td><td align="center">
+<img src="screenshots/Schermafbeelding 2026-01-16 13.50.48.png" width="100%"><br>
+<small><i>With Transcodarr - 200 fps transcode frames (no tone mapping)</i></small>
 </td>
 </tr>
 </table>  
