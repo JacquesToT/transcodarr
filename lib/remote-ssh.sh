@@ -1100,123 +1100,102 @@ echo 'SETUP_COMPLETE'
         show_result true "LaunchDaemons created and loaded"
         show_result true "Energy settings configured"
 
-        # Show verification results from script output
+        # ALWAYS force mount activation, don't rely on verification alone
+        echo ""
+        show_info "Forcing NFS mounts to activate..."
+        show_warning ">>> Enter your MAC password if prompted <<<"
+        echo ""
+
         local media_ok=false
         local cache_ok=false
+        local mount_output
 
-        if echo "$result" | grep -q "VERIFY_MEDIA_OK"; then
-            show_result true "NFS media mount working"
+        # MANDATORY: Always run mount scripts to ensure mounts are active
+        mount_output=$(ssh -tt \
+            -o ConnectTimeout=60 \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -i "$key_path" \
+            "${mac_user}@${mac_ip}" \
+            "sudo /usr/local/bin/mount-nfs-media.sh && sudo /usr/local/bin/mount-synology-cache.sh && mount | grep -E '(/data/media|jellyfin-cache)'" 2>&1)
+
+        # Verify the mounts worked
+        if echo "$mount_output" | grep -q "/data/media" && echo "$mount_output" | grep -q "jellyfin-cache"; then
+            echo ""
+            show_result true "NFS mounts are now active!"
             media_ok=true
-        else
-            show_warning "Media mount not active"
-        fi
-
-        if echo "$result" | grep -q "VERIFY_CACHE_OK"; then
-            show_result true "NFS cache mount working"
             cache_ok=true
         else
-            show_warning "Cache mount not active"
-        fi
-
-        # If mounts failed, we MUST fix it before continuing
-        if [[ "$media_ok" == false ]] || [[ "$cache_ok" == false ]]; then
+            # Attempt 2: Check if mount points exist, create if needed
             echo ""
-            show_warning "NFS mounts are not active yet!"
-            show_info "Attempting to fix automatically..."
-            echo ""
-
-            # Attempt 1: Run mount scripts with TTY for sudo
-            show_info "Running mount scripts on Mac..."
-            show_warning ">>> Enter your MAC password if prompted <<<"
-            echo ""
-
-            local mount_output
-            mount_output=$(ssh -tt \
+            show_info "Attempting alternative fix: creating mount points..."
+            ssh -tt \
                 -o ConnectTimeout=60 \
                 -o StrictHostKeyChecking=no \
                 -o UserKnownHostsFile=/dev/null \
                 -i "$key_path" \
                 "${mac_user}@${mac_ip}" \
-                "sudo /usr/local/bin/mount-nfs-media.sh && sudo /usr/local/bin/mount-synology-cache.sh && mount | grep -E '(/data/media|jellyfin-cache)'" 2>&1)
+                "sudo mkdir -p /System/Volumes/Data/data/media /Users/Shared/jellyfin-cache && sudo /usr/local/bin/mount-nfs-media.sh && sudo /usr/local/bin/mount-synology-cache.sh" 2>&1
 
-            # Verify the mounts worked
-            if echo "$mount_output" | grep -q "/data/media" && echo "$mount_output" | grep -q "jellyfin-cache"; then
+            # Final verification
+            local final_check
+            final_check=$(ssh_exec "$mac_user" "$mac_ip" "$key_path" "mount | grep -E '(/data/media|jellyfin-cache)'")
+
+            if echo "$final_check" | grep -q "/data/media" && echo "$final_check" | grep -q "jellyfin-cache"; then
                 echo ""
-                show_result true "NFS mounts are now active!"
+                show_result true "NFS mounts fixed!"
                 media_ok=true
                 cache_ok=true
             else
-                # Attempt 2: Check if mount points exist, create if needed
                 echo ""
-                show_info "Attempting alternative fix: creating mount points..."
-                ssh -tt \
-                    -o ConnectTimeout=60 \
-                    -o StrictHostKeyChecking=no \
-                    -o UserKnownHostsFile=/dev/null \
-                    -i "$key_path" \
-                    "${mac_user}@${mac_ip}" \
-                    "sudo mkdir -p /System/Volumes/Data/data/media /Users/Shared/jellyfin-cache && sudo /usr/local/bin/mount-nfs-media.sh && sudo /usr/local/bin/mount-synology-cache.sh" 2>&1
+                show_error "Could not activate NFS mounts automatically"
+                show_warning "Transcoding will fail until this is fixed!"
+                echo ""
+                show_info "Two options to fix:"
+                echo ""
+                echo "  Option 1: Reboot Mac now (mounts will activate on boot)"
+                echo "    Command: sudo reboot"
+                echo ""
+                echo "  Option 2: Fix manually later"
+                echo "    SSH to Mac and run:"
+                echo "      sudo /usr/local/bin/mount-nfs-media.sh"
+                echo "      sudo /usr/local/bin/mount-synology-cache.sh"
+                echo ""
 
-                # Final verification
-                local final_check
-                final_check=$(ssh_exec "$mac_user" "$mac_ip" "$key_path" "mount | grep -E '(/data/media|jellyfin-cache)'")
+                if ask_confirm "Reboot Mac now to activate mounts?"; then
+                    show_info "Rebooting Mac..."
+                    ssh_exec "$mac_user" "$mac_ip" "$key_path" "sudo reboot" || true
 
-                if echo "$final_check" | grep -q "/data/media" && echo "$final_check" | grep -q "jellyfin-cache"; then
-                    echo ""
-                    show_result true "NFS mounts fixed!"
-                    media_ok=true
-                    cache_ok=true
-                else
-                    echo ""
-                    show_error "Could not activate NFS mounts automatically"
-                    show_warning "Transcoding will fail until this is fixed!"
-                    echo ""
-                    show_info "Two options to fix:"
-                    echo ""
-                    echo "  Option 1: Reboot Mac now (mounts will activate on boot)"
-                    echo "    Command: sudo reboot"
-                    echo ""
-                    echo "  Option 2: Fix manually later"
-                    echo "    SSH to Mac and run:"
-                    echo "      sudo /usr/local/bin/mount-nfs-media.sh"
-                    echo "      sudo /usr/local/bin/mount-synology-cache.sh"
-                    echo ""
+                    show_info "Mac is rebooting. Waiting 30 seconds..."
+                    sleep 30
 
-                    if ask_confirm "Reboot Mac now to activate mounts?"; then
-                        show_info "Rebooting Mac..."
-                        ssh_exec "$mac_user" "$mac_ip" "$key_path" "sudo reboot" || true
+                    show_info "Waiting for Mac to come back online..."
+                    local max_wait=60
+                    local waited=0
+                    while [[ $waited -lt $max_wait ]]; do
+                        if ssh_exec "$mac_user" "$mac_ip" "$key_path" "echo ok" &>/dev/null; then
+                            show_result true "Mac is back online!"
 
-                        show_info "Mac is rebooting. Waiting 30 seconds..."
-                        sleep 30
+                            # Final check after reboot
+                            local reboot_check
+                            reboot_check=$(ssh_exec "$mac_user" "$mac_ip" "$key_path" "mount | grep -E '(/data/media|jellyfin-cache)'")
 
-                        show_info "Waiting for Mac to come back online..."
-                        local max_wait=60
-                        local waited=0
-                        while [[ $waited -lt $max_wait ]]; do
-                            if ssh_exec "$mac_user" "$mac_ip" "$key_path" "echo ok" &>/dev/null; then
-                                show_result true "Mac is back online!"
-
-                                # Final check after reboot
-                                local reboot_check
-                                reboot_check=$(ssh_exec "$mac_user" "$mac_ip" "$key_path" "mount | grep -E '(/data/media|jellyfin-cache)'")
-
-                                if echo "$reboot_check" | grep -q "/data/media" && echo "$reboot_check" | grep -q "jellyfin-cache"; then
-                                    show_result true "NFS mounts active after reboot!"
-                                    media_ok=true
-                                    cache_ok=true
-                                else
-                                    show_warning "Mounts still not active - manual intervention needed"
-                                fi
-                                break
+                            if echo "$reboot_check" | grep -q "/data/media" && echo "$reboot_check" | grep -q "jellyfin-cache"; then
+                                show_result true "NFS mounts active after reboot!"
+                                media_ok=true
+                                cache_ok=true
+                            else
+                                show_warning "Mounts still not active - manual intervention needed"
                             fi
-                            sleep 5
-                            ((waited+=5))
-                        done
-
-                        if [[ $waited -ge $max_wait ]]; then
-                            show_warning "Mac did not come back online within 60 seconds"
-                            show_info "Continue manually when Mac is back up"
+                            break
                         fi
+                        sleep 5
+                        ((waited+=5))
+                    done
+
+                    if [[ $waited -ge $max_wait ]]; then
+                        show_warning "Mac did not come back online within 60 seconds"
+                        show_info "Continue manually when Mac is back up"
                     fi
                 fi
             fi
